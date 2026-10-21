@@ -2,12 +2,12 @@
 
 用法（安装后直接跑）：
 
-    ShotBridge.exe --selftest                        # 用当前 client.json 的目标
-    ShotBridge.exe --selftest --host 192.168.1.20    # 临时指定接收端
-    ShotBridge.exe --selftest --port 8765 --token 1234
-    ShotBridge.exe --selftest --no-upload            # 只探测，不上传测试图
+    速截.exe --selftest                        # 用当前 client.json 的目标
+    速截.exe --selftest --host 192.168.1.20    # 临时指定接收端
+    速截.exe --selftest --port 8765 --token 1234
+    速截.exe --selftest --no-upload            # 只探测，不上传测试图
 
-结果同时写到 `%LOCALAPPDATA%\\ShotBridge\\logs\\selftest.log`，并在有控制台时打到标准输出。
+结果同时写到 `%LOCALAPPDATA%\\速截\\logs\\selftest.log`，并在有控制台时打到标准输出。
 退出码：0 = 关键能力都正常；1 = 有检查项失败（每项都会写原因）。
 """
 

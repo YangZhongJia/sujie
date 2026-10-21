@@ -1,7 +1,7 @@
-"""打包产物（dist\\ShotBridge\\ShotBridge.exe）端到端测试。
+"""打包产物（dist\\速截\\速截.exe）端到端测试。
 
 流程：
-  1. 停掉已在运行的 ShotBridge 进程
+  1. 停掉已在运行的 速截 进程
   2. 写干净的 client.json / receiver.json（接收目录用临时目录）
   3. 启动接收端 exe，等 /ping 通
   4. 启动截图端 exe，等悬浮球窗口出现
@@ -27,12 +27,12 @@ from ctypes import wintypes
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# 可以用 SHOTBRIDGE_EXE 指向别处（例如安装后的 %LOCALAPPDATA%\Programs\ShotBridge\ShotBridge.exe）
-EXE = Path(os.environ.get("SHOTBRIDGE_EXE") or (ROOT / "dist" / "ShotBridge" / "ShotBridge.exe"))
+# 可以用 SUJIE_EXE 指向别处（例如安装后的 %LOCALAPPDATA%\Programs\速截\速截.exe）
+EXE = Path(os.environ.get("SUJIE_EXE") or (ROOT / "dist" / "速截" / "速截.exe"))
 # 全程用临时 APPDATA，别动用户真实配置（子进程继承同一环境变量）
 _SANDBOX_APPDATA = tempfile.mkdtemp(prefix="sb_e2e_appdata_")
 os.environ["APPDATA"] = _SANDBOX_APPDATA
-APPDATA_DIR = Path(os.environ["APPDATA"]) / "ShotBridge"
+APPDATA_DIR = Path(os.environ["APPDATA"]) / "速截"
 SAVE_DIR = ROOT / "tests" / "_e2e_saved"
 PORT = 18765  # 用非默认端口，避免和用户正在跑的实例撞车
 
@@ -50,13 +50,13 @@ def check(ok: bool, name: str, detail: str = "") -> bool:
 
 # ----------------------------------------------------------------- 进程管理
 def kill_all() -> None:
-    subprocess.run(["taskkill", "/F", "/IM", "ShotBridge.exe"], capture_output=True)
+    subprocess.run(["taskkill", "/F", "/IM", "速截.exe"], capture_output=True)
     time.sleep(1.0)
 
 
 def pids() -> set[int]:
     out = subprocess.run(
-        ["tasklist", "/FI", "IMAGENAME eq ShotBridge.exe", "/FO", "CSV", "/NH"],
+        ["tasklist", "/FI", "IMAGENAME eq 速截.exe", "/FO", "CSV", "/NH"],
         capture_output=True, text=True, errors="replace",
     ).stdout
     found = set()
@@ -67,7 +67,7 @@ def pids() -> set[int]:
     return found
 
 
-def window_of(pid: int, title: str = "ShotBridge") -> tuple[int, tuple[int, int, int, int]] | None:
+def window_of(pid: int, title: str = "速截") -> tuple[int, tuple[int, int, int, int]] | None:
     """找属于该进程、可见、标题匹配的窗口，返回 (hwnd, rect)。"""
 
     def find():

@@ -1,4 +1,4 @@
-"""ShotBridge —— 悬浮小球截图 + 局域网跨机投递。
+"""速截 —— 悬浮小球截图 + 局域网跨机投递。
 
 模块划分：
     paths        应用数据目录
@@ -17,5 +17,5 @@
 """
 
 __version__ = "1.0.0"
-APP_NAME = "ShotBridge"
-APP_TITLE = "ShotBridge 截图传输"
+APP_NAME = "速截"
+APP_TITLE = "速截 截图传输"

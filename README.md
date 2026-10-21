@@ -17,7 +17,7 @@ Windows 截图工具：点悬浮球，编辑截图后发送到一台或多台接
 1. 首次启动选择本机模式：只截图、只收图、同时截图和收图。之后可在设置或接收端托盘菜单中更改。
 2. 收图电脑启动接收端；右键托盘图标可查看 IP、打开保存目录或更改保存目录。
 3. 截图电脑在设置中扫描或手动添加接收电脑。需要共享密钥时，为每个目标填写对应密钥。
-4. 点击悬浮球，完成标注后点“发送”。默认保存到接收电脑的「图片\\ShotBridge」目录，按日期分文件夹。
+4. 点击悬浮球，完成标注后点“发送”。默认保存到接收电脑的「图片\\速截」目录，按日期分文件夹。
 
 当前只支持 Windows 10/11 64 位。传输使用局域网 HTTP，不经过云服务；共享密钥可防止未授权上传，但传输内容未加密。请只在可信局域网使用。
 
@@ -30,7 +30,7 @@ python -m pip install PySide6 Pillow PyInstaller
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
 ```
 
-安装包输出到 `dist\installer\ShotBridge-Setup-1.0.0.exe`。
+安装包输出到 `dist\installer\速截-Setup-1.0.0.exe`。
 
 ## 检查
 

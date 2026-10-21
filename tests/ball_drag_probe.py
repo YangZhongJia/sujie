@@ -20,8 +20,8 @@ from PySide6.QtCore import QEvent, QTimer  # noqa: E402
 from PySide6.QtGui import QMouseEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from shotbridge.balloon import FloatingBall  # noqa: E402
-from shotbridge.config import ClientConfig  # noqa: E402
+from sujie.balloon import FloatingBall  # noqa: E402
+from sujie.config import ClientConfig  # noqa: E402
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 

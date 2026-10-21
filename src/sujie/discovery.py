@@ -13,6 +13,7 @@ import time
 from typing import Callable, Dict, List, Optional
 
 DISCOVERY_PORT = 8766
+# Keep the wire markers stable so this release can discover existing installs.
 MAGIC = b"SHOTBRIDGE_DISCOVER"
 REPLY_MAGIC = b"SHOTBRIDGE_REPLY"
 

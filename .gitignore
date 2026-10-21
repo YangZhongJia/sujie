@@ -5,7 +5,7 @@ __pycache__/
 # Local builds and installers
 /dist/
 /build/*
-!/build/shotbridge.spec
+!/build/sujie.spec
 
 # Test captures and runtime output
 /tests/_e2e_saved/

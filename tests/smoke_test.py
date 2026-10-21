@@ -19,8 +19,8 @@ os.environ["APPDATA"] = _SANDBOX_APPDATA
 
 sys.path.insert(0, str(ROOT / "src"))
 
-from shotbridge import capture, discovery, uploader, win32util  # noqa: E402
-from shotbridge.config import ClientConfig, ReceiverConfig, receiver_target  # noqa: E402
+from sujie import capture, discovery, uploader, win32util  # noqa: E402
+from sujie.config import ClientConfig, ReceiverConfig, receiver_target  # noqa: E402
 
 PASS, FAIL = "PASS", "FAIL"
 results = []
@@ -43,7 +43,7 @@ def check(name, condition, detail=""):
 
 def main():
     print("=" * 68)
-    print("ShotBridge 冒烟测试")
+    print("速截 冒烟测试")
     print("=" * 68)
 
     win32util.enable_dpi_awareness()
@@ -103,7 +103,7 @@ def main():
     receiver_config.token = "test-token"
     receiver_config.subdir_by_date = False
 
-    from shotbridge.receiver import start_server
+    from sujie.receiver import start_server
 
     httpd, _ = start_server(receiver_config)
     time.sleep(0.3)
@@ -185,7 +185,7 @@ def main():
         check("不可达时返回失败", not bad.ok, bad.message)
 
         # ------------------------------------------- 配置容错（记事本改过的文件）
-        appdata = os.path.join(_SANDBOX_APPDATA, "ShotBridge")
+        appdata = os.path.join(_SANDBOX_APPDATA, "速截")
         os.makedirs(appdata, exist_ok=True)
         if True:
             with open(os.path.join(appdata, "client.json"), "wb") as fh:

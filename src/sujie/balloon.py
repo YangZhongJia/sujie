@@ -63,7 +63,7 @@ class FloatingBall(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setWindowOpacity(float(config.ball_opacity))
-        self.setToolTip("ShotBridge：单击截图并编辑后发送\n拖动可移动位置，右键打开菜单")
+        self.setToolTip("速截：单击截图并编辑后发送\n拖动可移动位置，右键打开菜单")
 
     # ------------------------------------------------------------------ 绘制
     def paintEvent(self, event):  # noqa: N802

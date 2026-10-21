@@ -11,7 +11,7 @@ from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
-from shotbridge.editor import _Canvas  # noqa: E402
+from sujie.editor import _Canvas  # noqa: E402
 
 
 def demo() -> None:

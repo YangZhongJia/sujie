@@ -14,6 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from .paths import local_data_dir
+
 _IS_WINDOWS = sys.platform == "win32"
 _stream = None
 _log_path: Optional[str] = None
@@ -25,8 +27,7 @@ def log_path() -> str:
 
 
 def _log_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    return Path(base) / "ShotBridge" / "logs"
+    return local_data_dir() / "logs"
 
 
 def _show_error_dialog(title: str, text: str) -> None:
@@ -76,7 +77,7 @@ def init_logging(name: str = "app", show_dialog_on_error: bool = True) -> str:
         log(f"未捕获异常：\n{text}")
         if show_dialog_on_error:
             _show_error_dialog(
-                "ShotBridge 出错了",
+                "速截 出错了",
                 f"{exc_type.__name__}: {exc}\n\n详细信息已写入日志：\n{_log_path}",
             )
 

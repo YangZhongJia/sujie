@@ -15,20 +15,28 @@ def _home() -> Path:
     return Path(os.path.expanduser("~"))
 
 
+def _app_dir(base: str) -> Path:
+    directory = Path(base) / APP_NAME
+    legacy = Path(base) / "ShotBridge"
+    if legacy.is_dir() and not directory.exists():
+        try:
+            legacy.replace(directory)
+        except OSError:
+            pass
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
 def app_data_dir() -> Path:
-    """配置目录：%APPDATA%\\ShotBridge"""
+    """配置目录：%APPDATA%\\速截"""
     base = os.environ.get("APPDATA") or str(_home() / "AppData" / "Roaming")
-    d = Path(base) / APP_NAME
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return _app_dir(base)
 
 
 def local_data_dir() -> Path:
-    """本地数据目录：%LOCALAPPDATA%\\ShotBridge（日志、待发队列）。"""
+    """本地数据目录：%LOCALAPPDATA%\\速截（日志、待发队列）。"""
     base = os.environ.get("LOCALAPPDATA") or str(_home() / "AppData" / "Local")
-    d = Path(base) / APP_NAME
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return _app_dir(base)
 
 
 def outbox_dir() -> Path:
@@ -39,7 +47,7 @@ def outbox_dir() -> Path:
 
 
 def log_file() -> Path:
-    return local_data_dir() / "shotbridge.log"
+    return local_data_dir() / "sujie.log"
 
 
 def executable_path() -> str:

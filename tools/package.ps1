@@ -1,7 +1,7 @@
-﻿# ShotBridge 一键打包脚本
-#   1) PyInstaller 生成 dist\ShotBridge\（onedir，单 exe 双身份）
+﻿# 速截 一键打包脚本
+#   1) PyInstaller 生成 dist\速截\（onedir，单 exe 双身份）
 #   2) 修正产物完整性级别（本机沙箱会继承 Low 标签，Low 下程序无法写配置/日志/截图）
-#   3) Inno Setup 编译安装包 dist\installer\ShotBridge-Setup-<ver>.exe
+#   3) Inno Setup 编译安装包 dist\installer\速截-Setup-<ver>.exe
 #
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File tools\package.ps1
@@ -25,14 +25,14 @@ function Write-Step([string]$text) {
 
 function Find-Python {
     $candidates = @(
-        $env:SHOTBRIDGE_PYTHON,
+        $env:SUJIE_PYTHON,
         'C:\Program Files\Python314\python.exe',
         (Get-Command python -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
     )
     foreach ($c in $candidates) {
         if ($c -and (Test-Path $c)) { return $c }
     }
-    throw '找不到 Python 解释器，请设置环境变量 SHOTBRIDGE_PYTHON'
+    throw '找不到 Python 解释器，请设置环境变量 SUJIE_PYTHON'
 }
 
 function Find-Iscc {
@@ -60,7 +60,7 @@ function Repair-Integrity([string]$path) {
 }
 
 $python = Find-Python
-$version = (& $python -c "import sys; sys.path.insert(0, 'src'); from shotbridge import __version__; print(__version__)").Trim()
+$version = (& $python -c "import sys; sys.path.insert(0, 'src'); from sujie import __version__; print(__version__)").Trim()
 Write-Host "Python : $python"
 Write-Host "版本   : $version"
 
@@ -68,47 +68,47 @@ Write-Host "版本   : $version"
 if (-not $SkipBuild) {
     Write-Step '1/4 清理旧产物'
     # 正在运行的 exe 会锁住 _internal\*.dll，导致删除失败（WinError 5）
-    Get-Process -Name ShotBridge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process -Name 速截 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
-    foreach ($p in @('dist\ShotBridge', 'build\work')) {
+    foreach ($p in @('dist\速截', 'build\work')) {
         if (Test-Path $p) { Remove-Item $p -Recurse -Force }
     }
 
     Write-Step '2/4 PyInstaller 构建'
-    & $python -m PyInstaller --noconfirm --clean --distpath dist --workpath build\work build\shotbridge.spec
+    & $python -m PyInstaller --noconfirm --clean --distpath dist --workpath build\work build\sujie.spec
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 构建失败（exit $LASTEXITCODE）" }
 }
 else {
     Write-Step '1-2/4 跳过构建'
 }
 
-$appExe = Join-Path $root 'dist\ShotBridge\ShotBridge.exe'
+$appExe = Join-Path $root 'dist\速截\速截.exe'
 if (-not (Test-Path $appExe)) { throw "产物不存在：$appExe" }
 
 Write-Step '3/4 修正产物完整性级别'
-Repair-Integrity (Join-Path $root 'dist\ShotBridge')
+Repair-Integrity (Join-Path $root 'dist\速截')
 
-$size = [math]::Round((Get-ChildItem (Join-Path $root 'dist\ShotBridge') -Recurse -File | Measure-Object -Sum Length).Sum / 1MB, 1)
-Write-Host "便携目录 : dist\ShotBridge  ($size MB)"
+$size = [math]::Round((Get-ChildItem (Join-Path $root 'dist\速截') -Recurse -File | Measure-Object -Sum Length).Sum / 1MB, 1)
+Write-Host "便携目录 : dist\速截  ($size MB)"
 
 # ---------------------------------------------------------------- 2. 安装包
 if (-not $SkipInstaller) {
     Write-Step '4/4 编译安装包'
     $iscc = Find-Iscc
     if (-not (Test-Path 'docs\使用说明.md')) { throw '缺少 docs\使用说明.md，安装包需要它作为说明文档' }
-    & $iscc 'installer\shotbridge.iss'
+    & $iscc 'installer\sujie.iss'
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败（exit $LASTEXITCODE）" }
 
-    $setup = Join-Path $root "dist\installer\ShotBridge-Setup-$version.exe"
+    $setup = Join-Path $root "dist\installer\速截-Setup-$version.exe"
     if (-not (Test-Path $setup)) { throw "安装包未生成：$setup" }
     Repair-Integrity $setup
     $setupMb = [math]::Round((Get-Item $setup).Length / 1MB, 1)
-    Write-Host "安装包   : dist\installer\ShotBridge-Setup-$version.exe  ($setupMb MB)"
+    Write-Host "安装包   : dist\installer\速截-Setup-$version.exe  ($setupMb MB)"
 }
 else {
     Write-Step '4/4 跳过安装包'
 }
 
 Write-Step '完成'
-Write-Host "截图端 : dist\ShotBridge\ShotBridge.exe"
-Write-Host "接收端 : dist\ShotBridge\ShotBridge.exe --receiver"
+Write-Host "截图端 : dist\速截\速截.exe"
+Write-Host "接收端 : dist\速截\速截.exe --receiver"

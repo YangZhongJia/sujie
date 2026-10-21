@@ -10,7 +10,7 @@ from typing import Optional
 from . import bootstrap
 from .config import AppModeConfig, MODE_CHOICES, MODE_LABELS
 
-MANAGED_ENV = "SHOTBRIDGE_MANAGED_MODE"
+MANAGED_ENV = "SUJIE_MANAGED_MODE"
 
 def _command(role: str) -> list[str]:
     if getattr(sys, "frozen", False):
@@ -50,7 +50,7 @@ def _choose_mode() -> str:
 
     app = QApplication.instance() or QApplication([])
     dialog = QDialog()
-    dialog.setWindowTitle("选择 ShotBridge 工作模式")
+    dialog.setWindowTitle("选择 速截 工作模式")
     layout = QVBoxLayout(dialog)
     layout.addWidget(QLabel("这台电脑主要用于："))
     options = {}
@@ -71,7 +71,7 @@ def _choose_mode() -> str:
 
 
 def main(mode_arg: Optional[str] = None) -> int:
-    if not bootstrap.acquire_single_instance("ShotBridgeLauncher"):
+    if not bootstrap.acquire_single_instance("速截Launcher"):
         return 0
     config = AppModeConfig.load()
     mode = mode_arg or config.mode

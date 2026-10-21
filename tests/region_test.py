@@ -10,7 +10,7 @@ from PySide6.QtCore import QPoint, Qt, QTimer  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from shotbridge import capture, region, win32util  # noqa: E402
+from sujie import capture, region, win32util  # noqa: E402
 
 results = []
 

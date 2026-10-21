@@ -54,7 +54,7 @@ class SettingsDialog(QDialog):
         self.config = config
         self._scan_thread: Optional[_ScanThread] = None
         self._targets = [dict(target) for target in config.targets]
-        self.setWindowTitle("ShotBridge 设置")
+        self.setWindowTitle("速截 设置")
         self.setMinimumWidth(520)
         self._build()
         self._load()
@@ -85,7 +85,7 @@ class SettingsDialog(QDialog):
 
         hint = QLabel(
             "截图保存在【另一台电脑】上，所以要告诉本机往哪台机器发：\n"
-            "① 先在另一台电脑运行 ShotBridge 接收端（开始菜单 → ShotBridge 接收端）；\n"
+            "① 先在另一台电脑运行 速截 接收端（开始菜单 → 速截 接收端）；\n"
             "② 这里填那台电脑的 IP 和端口，或点「扫描局域网设备」自动查找；\n"
             "③ 可添加多台接收电脑，截图将发送到列表中的所有目标。"
         )
@@ -240,7 +240,7 @@ class SettingsDialog(QDialog):
         self.device_list.clear()
         if not devices:
             self.test_label.setText(
-                "没有发现接收端。请确认对方电脑已运行 ShotBridge 接收程序，"
+                "没有发现接收端。请确认对方电脑已运行 速截 接收程序，"
                 "且两台机器在同一局域网；也可以手动填写 IP。"
             )
             return

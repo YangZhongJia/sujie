@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包脚本：生成 onedir 版 ShotBridge（一个 exe，两种身份）。
+"""PyInstaller 打包脚本：生成 onedir 版 速截（一个 exe，两种身份）。
 
 用 onedir 而不是 onefile：
 - onefile 每次启动都要把 40+MB 解压到 %TEMP%，启动慢，且会遇到
@@ -11,11 +11,11 @@ from pathlib import Path
 
 ROOT = Path(SPECPATH).parent
 SRC = ROOT / "src"
-ICON = ROOT / "assets" / "shotbridge.ico"
+ICON = ROOT / "assets" / "sujie.ico"
 VERSION = ROOT / "assets" / "version_info.txt"
 
 a = Analysis(
-    [str(SRC / "shotbridge_app.py")],
+    [str(SRC / "sujie_app.py")],
     pathex=[str(SRC)],
     binaries=[],
     datas=[],
@@ -60,7 +60,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="ShotBridge",
+    name="速截",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -82,5 +82,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="ShotBridge",
+    name="速截",
 )

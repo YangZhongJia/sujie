@@ -20,10 +20,10 @@ from PySide6.QtCore import QPoint, Qt, QTimer  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
-from shotbridge import win32util  # noqa: E402
-from shotbridge.client import ClientApp  # noqa: E402
-from shotbridge.config import ClientConfig, ReceiverConfig, receiver_target  # noqa: E402
-from shotbridge.receiver import start_server  # noqa: E402
+from sujie import win32util  # noqa: E402
+from sujie.client import ClientApp  # noqa: E402
+from sujie.config import ClientConfig, ReceiverConfig, receiver_target  # noqa: E402
+from sujie.receiver import start_server  # noqa: E402
 
 PASS, FAIL = "PASS", "FAIL"
 results = []

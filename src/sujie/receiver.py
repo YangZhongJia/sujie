@@ -26,7 +26,7 @@ from urllib.parse import unquote, urlparse
 from . import APP_NAME, __version__, bootstrap, discovery, launcher, paths, win32util
 from .config import AppModeConfig, MODE_CHOICES, MODE_LABELS
 
-RECEIVER_VALUE_NAME = "ShotBridge"
+RECEIVER_VALUE_NAME = "速截"
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._\-一-鿿 ]")
 
@@ -74,7 +74,7 @@ class ReceiverState:
 
 
 class ReceiverHandler(BaseHTTPRequestHandler):
-    server_version = f"ShotBridge/{__version__}"
+    server_version = f"Sujie/{__version__}"
     state: ReceiverState = None  # type: ignore[assignment]
 
     # ------------------------------------------------------------ 基础响应
@@ -97,7 +97,7 @@ class ReceiverHandler(BaseHTTPRequestHandler):
         return provided == token
 
     def log_message(self, fmt, *args):  # 静音默认日志
-        if os.environ.get("SHOTBRIDGE_HTTP_LOG"):
+        if os.environ.get("SUJIE_HTTP_LOG"):
             sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
     # ---------------------------------------------------------------- 路由
@@ -192,7 +192,7 @@ def _receiver_main_gui(argv=None) -> int:
     from .balloon import make_app_icon
     from .config import ReceiverConfig
 
-    if not bootstrap.acquire_single_instance("ShotBridgeReceiver"):
+    if not bootstrap.acquire_single_instance("速截Receiver"):
         bootstrap.log("已有接收端在运行，本次退出")
         return 0
 
@@ -206,7 +206,7 @@ def _receiver_main_gui(argv=None) -> int:
     current_mode = AppModeConfig.load().mode or "receiver"
     if not config.save_dir:
         config.save_dir = os.path.join(
-            os.environ.get("USERPROFILE", os.path.expanduser("~")), "Pictures", "ShotBridge"
+            os.environ.get("USERPROFILE", os.path.expanduser("~")), "Pictures", "速截"
         )
         config.save()
     bootstrap.log(f"配置已加载：端口={config.port} 目录={config.resolved_save_dir()}")
@@ -400,7 +400,7 @@ def _receiver_main_gui(argv=None) -> int:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="ShotBridge 接收端")
+    parser = argparse.ArgumentParser(description="速截 接收端")
     parser.add_argument("--receiver", action="store_true", help="以接收端身份运行")
     parser.add_argument("--no-tray", action="store_true", help="不显示托盘，仅跑服务")
     parser.add_argument("--port", type=int, default=None)

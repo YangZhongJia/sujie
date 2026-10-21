@@ -1,10 +1,10 @@
 """统一入口：模式启动器、截图端、接收端和自检。
 
-    ShotBridge.exe                        → 按本机模式启动/首次选择模式
-    ShotBridge.exe --receiver             → 接收端（托盘服务）
-    ShotBridge.exe --client               → 截图端（悬浮球）
-    ShotBridge.exe --mode both            → 同时启动截图端和接收端
-    ShotBridge.exe --selftest [--host IP] → 无界面自检（排查用，不弹窗）
+    速截.exe                        → 按本机模式启动/首次选择模式
+    速截.exe --receiver             → 接收端（托盘服务）
+    速截.exe --client               → 截图端（悬浮球）
+    速截.exe --mode both            → 同时启动截图端和接收端
+    速截.exe --selftest [--host IP] → 无界面自检（排查用，不弹窗）
 
 这样安装包只需要带一份运行时（PySide6 等），体积减半，也避免两个 exe
 各自的单实例互斥/开机自启注册互相干扰。
@@ -23,7 +23,7 @@ _dll_dirs = [
     for name in ("PySide6", "shiboken6")
 ] if getattr(sys, "frozen", False) and sys.platform == "win32" else []
 
-from shotbridge import bootstrap  # noqa: E402
+from sujie import bootstrap  # noqa: E402
 
 if "--selftest" in sys.argv:
     _ROLE = "selftest"
@@ -39,13 +39,13 @@ bootstrap.log_environment()
 
 try:
     if _ROLE == "selftest":
-        from shotbridge.selftest import main as _main  # noqa: E402
+        from sujie.selftest import main as _main  # noqa: E402
     elif _ROLE == "receiver":
-        from shotbridge.receiver import main as _main  # noqa: E402
+        from sujie.receiver import main as _main  # noqa: E402
     elif _ROLE == "client":
-        from shotbridge.client import main as _main  # noqa: E402
+        from sujie.client import main as _main  # noqa: E402
     else:
-        from shotbridge.launcher import main as _launcher_main  # noqa: E402
+        from sujie.launcher import main as _launcher_main  # noqa: E402
 
         def _main():
             try:

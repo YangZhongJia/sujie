@@ -9,7 +9,7 @@
 
 用法：
   python tests\\lan_path_test.py                      # 测 dist 里的 exe
-  SHOTBRIDGE_EXE=... python tests\\lan_path_test.py   # 测指定 exe
+  SUJIE_EXE=... python tests\\lan_path_test.py   # 测指定 exe
 """
 
 from __future__ import annotations
@@ -28,11 +28,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-EXE = Path(os.environ.get("SHOTBRIDGE_EXE") or (ROOT / "dist" / "ShotBridge" / "ShotBridge.exe"))
+EXE = Path(os.environ.get("SUJIE_EXE") or (ROOT / "dist" / "速截" / "速截.exe"))
 # 全程用临时 APPDATA，子进程继承同一环境变量，不碰用户真实配置
 _SANDBOX_APPDATA = tempfile.mkdtemp(prefix="sb_lan_appdata_")
 os.environ["APPDATA"] = _SANDBOX_APPDATA
-APPDATA_DIR = Path(os.environ["APPDATA"]) / "ShotBridge"
+APPDATA_DIR = Path(os.environ["APPDATA"]) / "速截"
 SAVE_DIR = ROOT / "tests" / "_lan_saved"
 PORT = 18766
 
@@ -46,7 +46,7 @@ def check(ok: bool, name: str, detail: str = "") -> bool:
 
 
 def lan_ip() -> str:
-    from shotbridge.win32util import local_ipv4_addresses
+    from sujie.win32util import local_ipv4_addresses
     ips = local_ipv4_addresses()
     for ip in ips:
         if ip.startswith(("192.168.", "10.", "172.")):
@@ -55,7 +55,7 @@ def lan_ip() -> str:
 
 
 def kill_all() -> None:
-    subprocess.run(["taskkill", "/F", "/IM", "ShotBridge.exe"], capture_output=True)
+    subprocess.run(["taskkill", "/F", "/IM", "速截.exe"], capture_output=True)
     time.sleep(1.0)
 
 
@@ -81,8 +81,8 @@ def wait_ping(url: str, token: str = "", timeout: float = 25.0) -> dict | None:
 
 
 def main() -> int:
-    from shotbridge import discovery, uploader
-    from shotbridge import capture
+    from sujie import discovery, uploader
+    from sujie import capture
 
     ip = lan_ip()
     print(f"本机局域网 IP: {ip}")
@@ -193,7 +193,7 @@ def main() -> int:
                         return True
                     buf = ctypes.create_unicode_buffer(256)
                     user32.GetWindowTextW(hwnd, buf, 255)
-                    if "ShotBridge" not in buf.value:
+                    if "速截" not in buf.value:
                         return True
                     r = wintypes.RECT()
                     user32.GetWindowRect(hwnd, ctypes.byref(r))

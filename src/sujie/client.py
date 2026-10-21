@@ -18,7 +18,7 @@ from .balloon import FloatingBall, make_app_icon
 from .config import AppModeConfig, CAPTURE_MODE_LABELS, CAPTURE_MODES, ClientConfig
 from .editor import ScreenshotEditor
 
-CLIENT_VALUE_NAME = "ShotBridge"
+CLIENT_VALUE_NAME = "速截"
 CAPTURE_DEBOUNCE = 0.45  # 秒：两次截图请求的最小间隔，挡住连点/重复点击事件
 
 
@@ -486,7 +486,7 @@ def _safe_title(title: str) -> str:
 
 
 def main(argv=None) -> int:
-    if not bootstrap.acquire_single_instance("ShotBridgeClient"):
+    if not bootstrap.acquire_single_instance("速截Client"):
         bootstrap.log("已有客户端在运行，本次退出")
         return 0
 
@@ -498,7 +498,7 @@ def main(argv=None) -> int:
     bootstrap.log("QApplication 创建完成")
 
     controller = ClientApp(app)
-    app._shotbridge_controller = controller  # 防止被回收
+    app._sujie_controller = controller  # 防止被回收
     # 首次运行没配接收端时，稍等界面起来再自动弹设置
     QTimer.singleShot(900, controller.first_run_guide)
     bootstrap.log("悬浮球已就绪，进入事件循环")

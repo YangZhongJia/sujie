@@ -15,7 +15,7 @@ from typing import Callable, List, Optional, Tuple
 from . import paths
 from .config import ClientConfig
 
-USER_AGENT = "ShotBridge/1.0"
+USER_AGENT = "Sujie/1.0"
 
 
 def _opener() -> urllib.request.OpenerDirector:

@@ -1,4 +1,4 @@
-"""生成应用图标 assets/shotbridge.ico（多尺寸），供 PyInstaller 与安装包使用。"""
+"""生成应用图标 assets/sujie.ico（多尺寸），供 PyInstaller 与安装包使用。"""
 
 import os
 import sys
@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "assets"
-OUT = OUT_DIR / "shotbridge.ico"
+OUT = OUT_DIR / "sujie.ico"
 
 RED = (233, 79, 55)
 DARK = (176, 48, 30)
@@ -54,7 +54,7 @@ def main() -> int:
     images = [render(size) for size in sizes]
     images[-1].save(OUT, format="ICO", sizes=[(s, s) for s in sizes])
     # 同时留一张 png，方便文档使用
-    images[-1].save(OUT_DIR / "shotbridge.png")
+    images[-1].save(OUT_DIR / "sujie.png")
     print(f"已生成 {OUT} ({OUT.stat().st_size} 字节)")
     return 0
 

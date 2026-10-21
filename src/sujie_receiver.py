@@ -1,4 +1,4 @@
-"""ShotBridge 接收端入口（接收方电脑）。"""
+"""速截 接收端入口（接收方电脑）。"""
 
 import sys
 import traceback
@@ -6,13 +6,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from shotbridge import bootstrap  # noqa: E402
+from sujie import bootstrap  # noqa: E402
 
 bootstrap.init_logging("receiver")
 bootstrap.log_environment()
 
 try:
-    from shotbridge.receiver import main  # noqa: E402
+    from sujie.receiver import main  # noqa: E402
 except Exception:
     bootstrap.log("导入接收端模块失败：\n" + traceback.format_exc())
     raise

@@ -217,8 +217,8 @@ class ReceiverConfig(_JsonConfig):
     }
 
     def resolved_save_dir(self) -> str:
-        r"""未配置时使用「图片\ShotBridge」。"""
+        r"""未配置时使用「图片\速截」。"""
         if self.save_dir:
             return os.path.abspath(os.path.expanduser(self.save_dir))
         pics = os.environ.get("USERPROFILE", os.path.expanduser("~"))
-        return os.path.join(pics, "Pictures", "ShotBridge")
+        return os.path.join(pics, "Pictures", "速截")
