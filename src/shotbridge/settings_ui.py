@@ -1,4 +1,4 @@
-"""设置对话框：接收方式、截图参数、自启、连接测试。"""
+"""设置对话框：多接收端、截图参数、工作模式、自启和连接测试。"""
 
 from __future__ import annotations
 
@@ -26,9 +26,13 @@ from PySide6.QtWidgets import (
 
 from . import discovery, uploader, win32util
 from .config import (
+    AppModeConfig,
     CAPTURE_MODE_LABELS,
     CAPTURE_MODES,
     ClientConfig,
+    MODE_CHOICES,
+    MODE_LABELS,
+    receiver_target,
 )
 
 
@@ -49,6 +53,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.config = config
         self._scan_thread: Optional[_ScanThread] = None
+        self._targets = [dict(target) for target in config.targets]
         self.setWindowTitle("ShotBridge 设置")
         self.setMinimumWidth(520)
         self._build()
@@ -82,7 +87,7 @@ class SettingsDialog(QDialog):
             "截图保存在【另一台电脑】上，所以要告诉本机往哪台机器发：\n"
             "① 先在另一台电脑运行 ShotBridge 接收端（开始菜单 → ShotBridge 接收端）；\n"
             "② 这里填那台电脑的 IP 和端口，或点「扫描局域网设备」自动查找；\n"
-            "③ 截图会自动保存到接收端的 ShotBridge 文件夹。"
+            "③ 可添加多台接收电脑，截图将发送到列表中的所有目标。"
         )
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -109,6 +114,20 @@ class SettingsDialog(QDialog):
         self.device_list.setMaximumHeight(110)
         self.device_list.itemDoubleClicked.connect(self._pick_device)
         form.addRow("发现的设备", self.device_list)
+
+        self.target_list = QListWidget()
+        self.target_list.setMaximumHeight(120)
+        self.target_list.currentRowChanged.connect(self._load_target)
+        form.addRow("发送目标", self.target_list)
+
+        target_buttons = QHBoxLayout()
+        add_button = QPushButton("添加 / 更新目标")
+        add_button.clicked.connect(self._add_target)
+        remove_button = QPushButton("移除选中目标")
+        remove_button.clicked.connect(self._remove_target)
+        target_buttons.addWidget(add_button)
+        target_buttons.addWidget(remove_button)
+        form.addRow("", target_buttons)
 
         layout.addLayout(form)
         return page
@@ -141,6 +160,11 @@ class SettingsDialog(QDialog):
         self.notify_check = QCheckBox("发送成功后弹出提示")
         form.addRow("", self.notify_check)
 
+        self.role_combo = QComboBox()
+        for key in MODE_CHOICES:
+            self.role_combo.addItem(MODE_LABELS[key], key)
+        form.addRow("此电脑的工作模式", self.role_combo)
+
         layout.addLayout(form)
         layout.addStretch(1)
         return page
@@ -148,9 +172,7 @@ class SettingsDialog(QDialog):
     # ----------------------------------------------------------------- 载入
     def _load(self) -> None:
         c = self.config
-        self.host_edit.setText(c.host)
-        self.port_spin.setValue(int(c.port))
-        self.token_edit.setText(c.token)
+        self._refresh_targets()
 
         index = self.mode_combo.findData(c.capture_mode)
         if index >= 0:
@@ -158,6 +180,52 @@ class SettingsDialog(QDialog):
         self.autostart_check.setChecked(bool(c.auto_start))
         self.retry_check.setChecked(bool(c.retry_enabled))
         self.notify_check.setChecked(bool(c.notify_on_send))
+        mode = AppModeConfig.load().mode or "screenshot"
+        index = self.role_combo.findData(mode)
+        self.role_combo.setCurrentIndex(max(index, 0))
+
+    def _refresh_targets(self, selected_id: str = "") -> None:
+        self.target_list.clear()
+        selected_row = 0
+        for row, target in enumerate(self._targets):
+            name = target.get("name") or target.get("host", "")
+            auth = "（已设密钥）" if target.get("token") else "（无密钥）"
+            item = QListWidgetItem(
+                f"{name}　{target.get('host')}:{target.get('port', 8765)} {auth}"
+            )
+            item.setData(Qt.UserRole, target.get("id", ""))
+            self.target_list.addItem(item)
+            if target.get("id") == selected_id:
+                selected_row = row
+        if self._targets:
+            self.target_list.setCurrentRow(selected_row)
+
+    def _load_target(self, row: int) -> None:
+        if 0 <= row < len(self._targets):
+            target = self._targets[row]
+            self.host_edit.setText(str(target.get("host", "")))
+            self.port_spin.setValue(int(target.get("port", 8765)))
+            self.token_edit.setText(str(target.get("token", "")))
+
+    def _add_target(self) -> None:
+        host = self.host_edit.text().strip()
+        if not host:
+            QMessageBox.warning(self, "缺少配置", "请填写接收端 IP，或双击扫描到的设备。")
+            return
+        target = receiver_target(host, int(self.port_spin.value()), self.token_edit.text())
+        for row, old in enumerate(self._targets):
+            if old.get("id") == target["id"]:
+                self._targets[row] = target
+                self._refresh_targets(target["id"])
+                return
+        self._targets.append(target)
+        self._refresh_targets(target["id"])
+
+    def _remove_target(self) -> None:
+        row = self.target_list.currentRow()
+        if 0 <= row < len(self._targets):
+            self._targets.pop(row)
+            self._refresh_targets()
     # ----------------------------------------------------------------- 动作
 
     def _scan_devices(self) -> None:
@@ -181,7 +249,7 @@ class SettingsDialog(QDialog):
             item = QListWidgetItem(f"{device.get('device', '未知设备')}　{ips}　:{device.get('http_port', 8765)}")
             item.setData(Qt.UserRole, device)
             self.device_list.addItem(item)
-        self.test_label.setText(f"发现 {len(devices)} 台设备，双击可选中。")
+        self.test_label.setText(f"发现 {len(devices)} 台设备，双击填入后添加目标。")
 
     def _pick_device(self, item: QListWidgetItem) -> None:
         device = item.data(Qt.UserRole)
@@ -191,25 +259,25 @@ class SettingsDialog(QDialog):
         if ips:
             self.host_edit.setText(ips[0])
         self.port_spin.setValue(int(device.get("http_port", 8765)))
+        self.token_edit.clear()
 
     def _collect(self) -> ClientConfig:
         c = self.config
-        c.host = self.host_edit.text().strip()
-        c.port = int(self.port_spin.value())
-        c.token = self.token_edit.text()
+        c.targets = [dict(target) for target in self._targets]
         c.capture_mode = self.mode_combo.currentData()
         c.auto_start = self.autostart_check.isChecked()
         c.retry_enabled = self.retry_check.isChecked()
         c.notify_on_send = self.notify_check.isChecked()
+        self.app_mode = self.role_combo.currentData()
         return c
 
     def _on_accept(self) -> None:
         config = self._collect()
-        if not config.host:
-            QMessageBox.warning(self, "缺少配置", "请填写接收端 IP，或先扫描局域网设备。")
-            return
-        result = uploader.test_connection(config)
-        if not result.ok:
+        if config.targets:
+            result = uploader.test_connection(config)
+        else:
+            result = None
+        if result and not result.ok:
             answer = QMessageBox.question(
                 self,
                 "连接测试未通过",
@@ -219,7 +287,12 @@ class SettingsDialog(QDialog):
             )
             if answer != QMessageBox.Yes:
                 return
-        else:
+        elif result:
             self.test_label.setText(f"连接正常：{result.remote_path or result.message}")
+        else:
+            self.test_label.setText("还没有添加接收端，可稍后在设置中添加。")
         config.save()
+        mode = AppModeConfig.load()
+        mode.mode = self.app_mode
+        mode.save()
         self.accept()

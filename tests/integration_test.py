@@ -13,14 +13,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+_SANDBOX_APPDATA = tempfile.mkdtemp(prefix="sb_it_appdata_")
+os.environ["APPDATA"] = _SANDBOX_APPDATA
 
 from PySide6.QtCore import QPoint, Qt, QTimer  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
 from shotbridge import win32util  # noqa: E402
 from shotbridge.client import ClientApp  # noqa: E402
-from shotbridge.config import ClientConfig, ReceiverConfig  # noqa: E402
+from shotbridge.config import ClientConfig, ReceiverConfig, receiver_target  # noqa: E402
 from shotbridge.receiver import start_server  # noqa: E402
 
 PASS, FAIL = "PASS", "FAIL"
@@ -49,10 +51,8 @@ def main():
     time.sleep(0.3)
 
     config = ClientConfig()
-    config.host = "127.0.0.1"
-    config.port = port
-    config.token = ""
-    config.capture_mode = "window"
+    config.targets = [receiver_target("127.0.0.1", port)]
+    config.capture_mode = "screen"
     config.notify_on_send = False
     config.retry_enabled = False
     config.show_ball = True
@@ -69,6 +69,16 @@ def main():
     check("悬浮球置顶", bool(ball.windowFlags() & Qt.WindowStaysOnTopHint))
     check("悬浮球不抢焦点", bool(ball.windowFlags() & Qt.WindowDoesNotAcceptFocus))
 
+    def accept_editor():
+        for window in app.topLevelWidgets():
+            if window.windowTitle() == "编辑截图":
+                for button in window.findChildren(QPushButton):
+                    if button.text() == "发送":
+                        button.click()
+                        return
+        QTimer.singleShot(100, accept_editor)
+
+    QTimer.singleShot(300, accept_editor)
     # 真实点击小球
     QTest.mouseClick(ball, Qt.LeftButton, pos=QPoint(ball.width() // 2, ball.height() // 2))
     app.processEvents()

@@ -20,7 +20,7 @@ os.environ["APPDATA"] = _SANDBOX_APPDATA
 sys.path.insert(0, str(ROOT / "src"))
 
 from shotbridge import capture, discovery, uploader, win32util  # noqa: E402
-from shotbridge.config import ClientConfig, ReceiverConfig  # noqa: E402
+from shotbridge.config import ClientConfig, ReceiverConfig, receiver_target  # noqa: E402
 
 PASS, FAIL = "PASS", "FAIL"
 results = []
@@ -128,11 +128,34 @@ def main():
 
         # 客户端配置联动
         client_config = ClientConfig()
-        client_config.host = "127.0.0.1"
-        client_config.port = port
-        client_config.token = "test-token"
+        client_config.targets = [receiver_target("127.0.0.1", port, "test-token")]
         up2 = uploader.upload_image(client_config, "hello2.png", data)
         check("按配置上传", up2.ok, up2.message)
+
+        # ------------------------------------------------ 多接收端与单独补发
+        second_dir = os.path.join(tmpdir, "second")
+        second_port = port + 2
+        client_config.targets.append(receiver_target("127.0.0.1", second_port, "second-token"))
+        fanout = uploader.upload_image(client_config, "fanout.png", data)
+        check("多目标部分成功", fanout.successful_targets == 1 and len(fanout.failed_targets) == 1,
+              fanout.message)
+        first_count = len([name for name in os.listdir(tmpdir) if name.endswith(".png")])
+        fanout_outbox = uploader.Outbox(os.path.join(tmpdir, "fanout-outbox"))
+        fanout_outbox.add("fanout.png", data, fanout.failed_targets)
+
+        second_config = ReceiverConfig()
+        second_config.save_dir = second_dir
+        second_config.port = second_port
+        second_config.token = "second-token"
+        second_config.subdir_by_date = False
+        httpd2, _ = start_server(second_config)
+        time.sleep(0.2)
+        resent = uploader.flush_outbox(client_config, fanout_outbox)
+        second_count = len([name for name in os.listdir(second_dir) if name.endswith(".png")])
+        first_count_after = len([name for name in os.listdir(tmpdir) if name.endswith(".png")])
+        check("失败接收端恢复后补发", resent == 1 and second_count == 1, f"补发={resent} 文件={second_count}")
+        check("补发不重复发送给已成功端", first_count_after == first_count, f"{first_count} -> {first_count_after}")
+        check("全部目标送达后清空队列", fanout_outbox.count() == 0)
 
         # --------------------------------------------------------- 发现
         responder = discovery.DiscoveryResponder(
@@ -157,8 +180,7 @@ def main():
 
         # 配置里的错误主机应当失败
         bad_config = ClientConfig()
-        bad_config.host = "127.0.0.1"
-        bad_config.port = 1
+        bad_config.targets = [receiver_target("127.0.0.1", 1)]
         bad = uploader.upload_image(bad_config, "x.png", data)
         check("不可达时返回失败", not bad.ok, bad.message)
 
@@ -169,16 +191,19 @@ def main():
             with open(os.path.join(appdata, "client.json"), "wb") as fh:
                 fh.write(b"\xef\xbb\xbf" + json.dumps({"host": "10.0.0.9", "port": 9000}).encode("utf-8"))
             loaded = ClientConfig.load()
-            check("UTF-8 BOM 的配置能读", loaded.host == "10.0.0.9" and int(loaded.port) == 9000,
-                  f"host={loaded.host} port={loaded.port}")
+            check("旧版单接收端配置能迁移", loaded.targets[0]["host"] == "10.0.0.9" and int(loaded.targets[0]["port"]) == 9000,
+                  f"targets={len(loaded.targets)}")
             with open(os.path.join(appdata, "client.json"), "wb") as fh:
                 fh.write(json.dumps({"host": "10.0.0.10"}).encode("utf-16"))
             loaded2 = ClientConfig.load()
-            check("UTF-16 的配置能读", loaded2.host == "10.0.0.10", loaded2.host)
+            check("UTF-16 的配置能读", loaded2.targets[0]["host"] == "10.0.0.10", loaded2.targets[0]["host"])
         check("测试没有写真实 APPDATA",
               os.path.normcase(os.environ["APPDATA"]) == os.path.normcase(_SANDBOX_APPDATA),
               os.environ["APPDATA"])
     finally:
+        if "httpd2" in locals():
+            httpd2.shutdown()
+            httpd2.server_close()
         httpd.shutdown()
         httpd.server_close()
 

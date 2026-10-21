@@ -23,9 +23,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.parse import unquote, urlparse
 
-from . import APP_NAME, __version__, bootstrap, discovery, paths, win32util
+from . import APP_NAME, __version__, bootstrap, discovery, launcher, paths, win32util
+from .config import AppModeConfig, MODE_CHOICES, MODE_LABELS
 
-RECEIVER_VALUE_NAME = "ShotBridgeReceiver"
+RECEIVER_VALUE_NAME = "ShotBridge"
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._\-一-鿿 ]")
 
@@ -202,6 +203,7 @@ def _receiver_main_gui(argv=None) -> int:
     bootstrap.log("QApplication 创建完成")
 
     config = ReceiverConfig.load()
+    current_mode = AppModeConfig.load().mode or "receiver"
     if not config.save_dir:
         config.save_dir = os.path.join(
             os.environ.get("USERPROFILE", os.path.expanduser("~")), "Pictures", "ShotBridge"
@@ -246,7 +248,7 @@ def _receiver_main_gui(argv=None) -> int:
     def refresh_tray():
         ips = win32util.local_ipv4_addresses()
         tip = (
-            f"{APP_NAME} 接收端 v{__version__}\n"
+            f"{APP_NAME} · {MODE_LABELS.get(current_mode, '收图')} v{__version__}\n"
             f"保存目录：{config.resolved_save_dir()}\n"
             f"监听端口：{config.port}\n"
             f"本机 IP：{', '.join(ips) if ips else '未识别'}"
@@ -301,7 +303,7 @@ def _receiver_main_gui(argv=None) -> int:
 
     def toggle_autostart():
         enabled = not win32util.is_autostart_enabled(RECEIVER_VALUE_NAME)
-        command = f'"{paths.executable_path()}" --receiver'
+        command = paths.startup_target()
         ok = win32util.set_autostart(enabled, RECEIVER_VALUE_NAME, command)
         config.auto_start = enabled and ok
         config.save()
@@ -312,6 +314,22 @@ def _receiver_main_gui(argv=None) -> int:
             3000,
         )
         refresh_tray()
+
+    def set_mode(mode: str):
+        nonlocal current_mode
+        current_mode = mode
+        launcher.launch_mode(mode, current_role="receiver", app=app)
+        for key, action in mode_actions.items():
+            action.setChecked(key == mode)
+        tray.showMessage(APP_NAME, f"工作模式已切换为：{MODE_LABELS[mode]}", QSystemTrayIcon.Information, 3500)
+
+    def check_mode():
+        nonlocal current_mode
+        mode = AppModeConfig.load().mode or "receiver"
+        if mode != current_mode:
+            current_mode = mode
+            launcher.launch_mode(mode, current_role="receiver", app=app)
+            refresh_tray()
 
     def show_info():
         state = ReceiverState(config)
@@ -324,7 +342,7 @@ def _receiver_main_gui(argv=None) -> int:
             f"端口：{config.port}\n"
             f"保存目录：{info['save_dir']}\n"
             f"已接收：{info['count']} 张\n\n"
-            "在截图端「设置 → 接收方式」里填入上面的 IP 和端口即可。",
+            "在截图端「设置 → 接收端」里添加这台电脑。",
         )
 
     def quit_app():
@@ -342,6 +360,14 @@ def _receiver_main_gui(argv=None) -> int:
     menu.addAction(QAction("更改保存目录…", menu, triggered=change_folder))
     menu.addAction(QAction("更改端口…", menu, triggered=change_port))
     menu.addAction(QAction("更改共享密钥…", menu, triggered=change_token))
+    mode_menu = menu.addMenu("本机工作模式")
+    mode_actions = {}
+    for mode in MODE_CHOICES:
+        action = QAction(MODE_LABELS[mode], mode_menu, checkable=True)
+        action.setChecked(mode == current_mode)
+        action.triggered.connect(lambda _checked, value=mode: set_mode(value))
+        mode_menu.addAction(action)
+        mode_actions[mode] = action
     autostart_action = QAction("开机自启", menu, checkable=True)
     autostart_action.setChecked(win32util.is_autostart_enabled(RECEIVER_VALUE_NAME))
     autostart_action.triggered.connect(lambda _checked: toggle_autostart())
@@ -363,6 +389,10 @@ def _receiver_main_gui(argv=None) -> int:
     timer = QTimer()
     timer.timeout.connect(refresh_tray)
     timer.start(5000)
+    if os.environ.get(launcher.MANAGED_ENV) == "1":
+        mode_timer = QTimer()
+        mode_timer.timeout.connect(check_mode)
+        mode_timer.start(1000)
 
     code = app.exec()
     bootstrap.log(f"事件循环结束，退出码 {code}")

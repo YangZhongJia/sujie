@@ -7,6 +7,8 @@
     capture      屏幕 / 窗口 / 区域截图
     region       区域框选遮罩窗
     uploader     HTTP 上传 + 离线重发队列
+    editor       截图标注与马赛克
+    launcher     首次工作模式选择与双端启动
     discovery    UDP 局域网设备自动发现
     balloon      桌面悬浮小球
     settings_ui  设置对话框

@@ -7,6 +7,7 @@ import os
 import tempfile
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Dict
+from hashlib import sha256
 
 from . import paths
 
@@ -20,6 +21,21 @@ CAPTURE_MODE_LABELS = {
     "screen": "整个屏幕",
     "region": "手动框选区域",
 }
+
+
+def receiver_target(host: str, port: int = 8765, token: str = "", name: str = "") -> Dict[str, Any]:
+    host = str(host).strip()
+    if not host or any(ch.isspace() for ch in host) or "/" in host:
+        raise ValueError("接收端地址无效")
+    if isinstance(port, bool):
+        raise ValueError("接收端端口无效")
+    port = int(port)
+    if not 1 <= port <= 65535:
+        raise ValueError("接收端端口必须在 1 到 65535 之间")
+    identity = sha256(f"{host.casefold()}:{port}".encode("utf-8")).hexdigest()[:16]
+    return {"id": identity, "name": name.strip() or host, "host": host, "port": port, "token": token}
+
+
 def _atomic_write(path: str, data: str) -> None:
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
@@ -47,6 +63,33 @@ class _JsonConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]):
+        data = data or {}
+        if cls is ClientConfig:
+            data = dict(data)
+            # Upgrade the old single-receiver client.json without changing its target.
+            if "targets" not in data and data.get("host"):
+                try:
+                    data["targets"] = [receiver_target(
+                        data["host"], data.get("port", 8765), data.get("token", "")
+                    )]
+                except (TypeError, ValueError):
+                    data["targets"] = []
+            normalized = []
+            raw_targets = data.get("targets", [])
+            if isinstance(raw_targets, list):
+                for raw_target in raw_targets:
+                    if not isinstance(raw_target, dict):
+                        continue
+                    try:
+                        target = receiver_target(
+                            raw_target.get("host", ""), raw_target.get("port", 8765),
+                            raw_target.get("token", ""), raw_target.get("name", ""),
+                        )
+                    except (TypeError, ValueError):
+                        continue
+                    target["id"] = str(raw_target.get("id") or target["id"])
+                    normalized.append(target)
+            data["targets"] = normalized
         known = {f.name for f in fields(cls)}  # type: ignore[arg-type]
         kwargs = {k: v for k, v in (data or {}).items() if k in known}
         obj = cls(**kwargs)  # type: ignore[call-arg]
@@ -101,9 +144,7 @@ class _JsonConfig:
 class ClientConfig(_JsonConfig):
     """客户端（截图端）配置。"""
 
-    host: str = ""                   # HTTP 接收端 IP
-    port: int = 8765                 # HTTP 接收端端口
-    token: str = ""                  # 共享密钥（可空）
+    targets: list[Dict[str, Any]] = field(default_factory=list)
 
     capture_mode: str = "window"     # window | monitor | screen | region
     auto_start: bool = False
@@ -119,9 +160,7 @@ class ClientConfig(_JsonConfig):
 
     _file_name = CLIENT_CONFIG_NAME
     _defaults = {
-        "host": "",
-        "port": 8765,
-        "token": "",
+        "targets": [],
         "capture_mode": "window",
         "auto_start": False,
         "retry_enabled": True,
@@ -134,6 +173,24 @@ class ClientConfig(_JsonConfig):
         "ball_color": "#e94f37",
         "ball_position": "",
     }
+
+
+MODE_CHOICES = ("screenshot", "receiver", "both")
+MODE_LABELS = {
+    "screenshot": "只截图",
+    "receiver": "只收图",
+    "both": "同时截图和收图",
+}
+
+
+@dataclass
+class AppModeConfig(_JsonConfig):
+    """本机工作模式。首次运行时为空，由启动引导选择。"""
+
+    mode: str = ""
+
+    _file_name = "mode.json"
+    _defaults = {"mode": ""}
 
 
 @dataclass

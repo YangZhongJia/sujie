@@ -247,4 +247,4 @@ await chrome.debugger.detach({ tabId: tab.id });
 - **保留手填 IP + zeroconf 双通道**：mDNS 在 Windows 上依赖「网络发现」且受 VPN/虚拟网卡干扰，手填 IP 永远是兜底。
 - **不选 LocalSend/PairDrop 作为默认**：协议成熟、零代码，但目标机要装 App、接收目录在 App 里配、还多一个 53317 端口的放行负担——适合当「手动补发」备用通道，不适合做默认链路。
 
-**落地顺序**：① 先用 `receiver.py` + `requests` 跑通「本地 PNG → 目标机文件夹」；② 再接 `mss` 选区截图与扩展的当前页面截图；③ 最后加 zeroconf 自动发现、token 鉴权、断线重试与降级到 UNC。\n
+**落地顺序**：① 先用 `receiver.py` + `requests` 跑通「本地 PNG → 目标机文件夹」；② 再接 `mss` 选区截图与扩展的当前页面截图；③ 最后加 zeroconf 自动发现、token 鉴权、断线重试与降级到 UNC。

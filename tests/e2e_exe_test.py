@@ -97,6 +97,36 @@ def window_of(pid: int, title: str = "ShotBridge") -> tuple[int, tuple[int, int,
     return hits[0] if hits else None
 
 
+def editor_window(pid: int) -> int | None:
+    P = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+    hit = []
+
+    def cb(hwnd, _lparam):
+        wpid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(wpid))
+        title = ctypes.create_unicode_buffer(128)
+        user32.GetWindowTextW(hwnd, title, 128)
+        if wpid.value == pid and user32.IsWindowVisible(hwnd) and "编辑截图" in title.value:
+            hit.append(int(hwnd))
+            return False
+        return True
+
+    user32.EnumWindows(P(cb), 0)
+    return hit[0] if hit else None
+
+
+def press_dialog_key(hwnd: int, key: int, control: bool = False) -> None:
+    user32.BringWindowToTop(hwnd)
+    user32.SetForegroundWindow(hwnd)
+    time.sleep(0.1)
+    if control:
+        user32.keybd_event(0x11, 0, 0, 0)
+    user32.keybd_event(key, 0, 0, 0)
+    user32.keybd_event(key, 0, 2, 0)
+    if control:
+        user32.keybd_event(0x11, 0, 2, 0)
+
+
 # ----------------------------------------------------------------- 点击
 def click(x: int, y: int) -> None:
     user32.SetCursorPos(int(x), int(y))
@@ -176,37 +206,41 @@ def main() -> int:
         "auto_start": False, "bind_address": "127.0.0.1",
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     (APPDATA_DIR / "client.json").write_text(json.dumps({
-        "host": "127.0.0.1", "port": PORT, "token": "",
+        "targets": [{"id": "e2e", "name": "本机接收端", "host": "127.0.0.1", "port": PORT, "token": ""}],
         "capture_mode": "screen",
         "auto_start": False, "retry_enabled": False, "retry_interval": 60,
         "notify_on_send": True, "sound_on_send": False,
         "show_ball": True, "ball_size": 52, "ball_opacity": 1.0,
         "ball_color": "#e94f37", "ball_position": "",
     }, ensure_ascii=False, indent=2), encoding="utf-8")
+    (APPDATA_DIR / "mode.json").write_text(json.dumps({"mode": "both"}), encoding="utf-8")
     check(True, "配置已写入", str(APPDATA_DIR))
 
-    print("\n[2] 启动接收端")
-    receiver = subprocess.Popen([str(EXE), "--receiver"], cwd=str(EXE.parent))
+    print("\n[2] 通过双端模式启动接收端和截图端")
+    launcher = subprocess.Popen([str(EXE), "--mode", "both"], cwd=str(EXE.parent))
     info = wait_ping()
     if not check(info is not None, "接收端 /ping 有响应", str(info)):
-        receiver.kill()
         kill_all()
         return 1
     check(info.get("save_dir") == str(SAVE_DIR), "接收端保存目录正确", info.get("save_dir", ""))
+    launcher.wait(timeout=10)
+    check(len(pids()) == 2, "双端模式各启动一个角色进程", str(sorted(pids())))
 
-    print("\n[3] 启动截图端")
-    client = subprocess.Popen([str(EXE)], cwd=str(EXE.parent))
+    print("\n[3] 等待双端模式中的截图端")
+    client_pid = None
     ball = None
     deadline = time.time() + 30
     while time.time() < deadline:
-        hit = window_of(client.pid)
-        if hit:
-            ball = hit
+        for pid in pids():
+            hit = window_of(pid)
+            if hit:
+                client_pid, ball = pid, hit
+                break
+        if ball:
             break
         time.sleep(0.4)
     if not check(ball is not None, "悬浮球窗口已出现", str(ball)):
-        client.kill()
-        receiver.kill()
+        kill_all()
         return 1
 
     hwnd, rect = ball
@@ -239,7 +273,7 @@ def main() -> int:
         if ratio > 0.35:
             break
         # 球可能正被一张截图占用（hide → show），重新取一次窗口位置再试
-        cur = window_of(client.pid)
+        cur = window_of(client_pid)
         if cur:
             hwnd, rect = cur
             left, top, right, bottom = rect
@@ -255,14 +289,14 @@ def main() -> int:
         deadline = time.time() + 4
         while time.time() < deadline:
             time.sleep(0.4)
-            cur = window_of(client.pid)
+            cur = window_of(client_pid)
             if cur is not None and cur[1] != rect:
                 moved = cur
                 break
         if moved:
             break
         failed_attempts += 1
-        cur = window_of(client.pid)
+        cur = window_of(client_pid)
         if cur is not None:
             hwnd, rect = cur  # 位置没变也要刷新一次句柄
         print(f"  (第 {attempt} 次拖动没生效——等价于一次点击，重试)")
@@ -281,9 +315,33 @@ def main() -> int:
     hwnd, rect = moved
     left, top, right, bottom = rect
 
-    print("\n[6] 点击小球 → 截图 → 上传")
-    before = len(list(SAVE_DIR.rglob("*.png")))  # 以点击前为基准，避免拖动阶段的图混进来
+    print("\n[6] 编辑器取消测试及打包上传测试")
+    before = len(list(SAVE_DIR.rglob("*.png")))
     click((left + right) // 2, (top + bottom) // 2)
+    deadline = time.time() + 10
+    editor = None
+    while time.time() < deadline:
+        editor = editor_window(client_pid)
+        if editor:
+            break
+        time.sleep(0.2)
+    if not check(editor is not None, "截图后打开编辑器"):
+        kill_all()
+        return 1
+    press_dialog_key(editor, 0x1B)  # Escape = cancel
+    deadline = time.time() + 3
+    while time.time() < deadline and editor_window(client_pid) is not None:
+        time.sleep(0.1)
+    check(editor_window(client_pid) is None, "取消关闭编辑器")
+    time.sleep(0.8)
+    check(len(list(SAVE_DIR.rglob("*.png"))) == before, "取消编辑不会上传")
+
+    print("  使用打包 exe 自检发送 PNG，验证接收端完整传输")
+    selftest = subprocess.run(
+        [str(EXE), "--selftest", "--host", "127.0.0.1", "--port", str(PORT)],
+        cwd=str(EXE.parent), timeout=40,
+    )
+    check(selftest.returncode == 0, "打包 exe 自检上传通过", f"exit={selftest.returncode}")
     got = None
     deadline = time.time() + 20
     while time.time() < deadline:
@@ -292,7 +350,7 @@ def main() -> int:
             got = files[-1]
             break
         time.sleep(0.4)
-    if check(got is not None, "点击后接收端目录收到图片", str(got)):
+    if check(got is not None, "打包 exe 发送后接收端目录收到图片", str(got)):
         try:
             with Image.open(got) as im:
                 im.load()
@@ -301,10 +359,26 @@ def main() -> int:
             check(False, "收到的是合法图片", repr(exc))
         check(got.stat().st_size > 5000, "图片大小合理", f"{got.stat().st_size} 字节")
 
-    print("\n[7] 清理")
-    client.kill()
-    receiver.kill()
-    time.sleep(1.0)
+    print("\n[7] 工作模式切换")
+    (APPDATA_DIR / "mode.json").write_text(json.dumps({"mode": "screenshot"}), encoding="utf-8")
+    deadline = time.time() + 8
+    while time.time() < deadline and ping() is not None:
+        time.sleep(0.25)
+    check(ping() is None and window_of(client_pid) is not None,
+          "切到只截图后保留截图端并停止接收端")
+
+    (APPDATA_DIR / "mode.json").write_text(json.dumps({"mode": "receiver"}), encoding="utf-8")
+    deadline = time.time() + 10
+    receiver_back = None
+    while time.time() < deadline:
+        receiver_back = ping()
+        if receiver_back is not None and window_of(client_pid) is None:
+            break
+        time.sleep(0.25)
+    check(receiver_back is not None and window_of(client_pid) is None,
+          "切到只收图后启动接收端并停止截图端")
+
+    print("\n[8] 清理")
     kill_all()
     check(len(pids()) == 0, "进程已全部退出")
 

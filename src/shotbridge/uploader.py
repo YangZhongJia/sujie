@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Tuple
 
 from . import paths
@@ -34,6 +34,9 @@ class UploadResult:
     ok: bool
     message: str = ""
     remote_path: str = ""
+    successful_targets: int = 0
+    total_targets: int = 0
+    failed_targets: List[dict] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------- HTTP
@@ -110,15 +113,53 @@ def upload_image(
     filename: str,
     data: bytes,
 ) -> UploadResult:
-    """按配置把图片发到对端。"""
-    if not config.host:
+    """把图片发给配置的所有接收端，并返回未成功的目标。"""
+    return upload_targets(config.targets, filename, data)
+
+
+def upload_targets(targets: List[dict], filename: str, data: bytes) -> UploadResult:
+    if not targets:
         return UploadResult(False, "尚未配置接收端地址")
-    return http_upload(config.host, config.port, config.token, filename, data)
+    failed = []
+    sent = 0
+    for target in targets:
+        result = http_upload(
+            str(target.get("host", "")),
+            int(target.get("port", 8765)),
+            str(target.get("token", "")),
+            filename,
+            data,
+        )
+        if result.ok:
+            sent += 1
+        else:
+            failed.append({**target, "error": result.message})
+    total = len(targets)
+    message = f"已发送到 {sent}/{total} 个接收端"
+    if failed:
+        message += f"；{len(failed)} 个失败"
+    return UploadResult(not failed, message, successful_targets=sent, total_targets=total, failed_targets=failed)
 
 
 def test_connection(config: ClientConfig) -> UploadResult:
-    """连接测试。"""
-    return http_ping(config.host, config.port, config.token)
+    """测试所有接收端，汇总失败目标。"""
+    failed = []
+    sent = 0
+    for target in config.targets:
+        result = http_ping(str(target.get("host", "")), int(target.get("port", 8765)), str(target.get("token", "")))
+        if result.ok:
+            sent += 1
+        else:
+            failed.append({**target, "error": result.message})
+    total = len(config.targets)
+    details = "; ".join(
+        f"{target.get('host')}:{target.get('port')} {target.get('error')}"
+        for target in failed
+    )
+    message = f"连接正常：{sent}/{total} 个接收端"
+    if details:
+        message += f"；{details}"
+    return UploadResult(total > 0 and not failed, message, successful_targets=sent, total_targets=total, failed_targets=failed)
 
 
 # ------------------------------------------------------------------ 待发队列
@@ -129,18 +170,23 @@ class Outbox:
     def __init__(self, directory: Optional[str] = None):
         self.directory = directory or str(paths.outbox_dir())
 
-    def add(self, filename: str, data: bytes) -> str:
+    def add(self, filename: str, data: bytes, targets: Optional[List[dict]] = None) -> str:
         os.makedirs(self.directory, exist_ok=True)
         safe = _safe_filename(filename)
         target = os.path.join(self.directory, safe)
+        stem, ext = os.path.splitext(safe)
+        index = 1
+        while os.path.exists(target):
+            target = os.path.join(self.directory, f"{stem}-{index}{ext}")
+            index += 1
         with open(target, "wb") as fh:
             fh.write(data)
-        _write_meta(target, filename)
+        _write_meta(target, {"filename": filename, "targets": targets or []})
         return target
 
-    def pending(self) -> List[Tuple[str, bytes, str]]:
-        """返回 [(队列文件名, 字节数据, 原始文件名)]。"""
-        items: List[Tuple[str, bytes, str]] = []
+    def pending(self) -> List[Tuple[str, bytes, str, List[dict]]]:
+        """返回 [(队列文件名, 图像, 原始文件名, 失败目标)]。"""
+        items: List[Tuple[str, bytes, str, List[dict]]] = []
         if not os.path.isdir(self.directory):
             return items
         for name in sorted(os.listdir(self.directory)):
@@ -152,9 +198,17 @@ class Outbox:
                     data = fh.read()
             except OSError:
                 continue
-            original = _read_meta(full) or name
-            items.append((name, data, original))
+            meta = _read_meta(full)
+            if isinstance(meta, dict):
+                original = str(meta.get("filename", name))
+                targets = meta.get("targets", [])
+            else:  # 兼容旧版只保存原文件名的队列
+                original, targets = str(meta or name), []
+            items.append((name, data, original, targets if isinstance(targets, list) else []))
         return items
+
+    def update_targets(self, queue_name: str, filename: str, targets: List[dict]) -> None:
+        _write_meta(os.path.join(self.directory, queue_name), {"filename": filename, "targets": targets})
 
     def remove(self, queue_name: str) -> None:
         for suffix in ("", ".meta"):
@@ -184,32 +238,36 @@ def _meta_path(path: str) -> str:
     return path + ".meta"
 
 
-def _write_meta(path: str, original: str) -> None:
+def _write_meta(path: str, data: dict) -> None:
     try:
         with open(_meta_path(path), "w", encoding="utf-8") as fh:
-            fh.write(original)
+            json.dump(data, fh, ensure_ascii=False)
     except OSError:
         pass
 
 
-def _read_meta(path: str) -> str:
+def _read_meta(path: str):
     try:
         with open(_meta_path(path), "r", encoding="utf-8") as fh:
-            return fh.read().strip()
+            raw = fh.read().strip()
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return raw
     except OSError:
-        return ""
+        return None
 
 
 def flush_outbox(config: ClientConfig, outbox: Outbox, on_result: Optional[Callable[[UploadResult, str], None]] = None) -> int:
-    """补发队列里的历史截图，返回成功条数。"""
+    """只补发每张图尚未成功的接收端，返回完全送达的图片数。"""
     sent = 0
-    for queue_name, data, original in outbox.pending():
-        result = upload_image(config, original, data)
+    for queue_name, data, original, targets in outbox.pending():
+        result = upload_targets(targets or config.targets, original, data)
         if result.ok:
             outbox.remove(queue_name)
             sent += 1
+        else:
+            outbox.update_targets(queue_name, original, result.failed_targets)
         if on_result:
             on_result(result, original)
-        if not result.ok:
-            break
     return sent

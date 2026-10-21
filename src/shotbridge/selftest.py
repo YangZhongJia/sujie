@@ -20,6 +20,7 @@ import time
 from typing import Callable, List
 
 from . import APP_TITLE, __version__, bootstrap, capture, config, paths, uploader, win32util
+from .config import receiver_target
 
 _LINES: List[str] = []
 
@@ -98,9 +99,9 @@ def run(argv: List[str]) -> int:
     client_cfg = config.ClientConfig.load()
 
     def _config_check() -> str:
+        targets = client_cfg.targets
         return (
-            f"目标={client_cfg.host or '(未设置)'}:{client_cfg.port} "
-            f"密钥={'已设置' if client_cfg.token else '空'} 截图方式={client_cfg.capture_mode}"
+            f"接收端={len(targets)} 个 截图方式={client_cfg.capture_mode}"
         )
 
     check("读取截图端配置", _config_check)
@@ -143,26 +144,40 @@ def run(argv: List[str]) -> int:
 
     check("图片编码", _encode_check)
 
-    host = opts["host"] or client_cfg.host
-    port = opts["port"] or client_cfg.port
-    token = client_cfg.token if opts["token"] is None else opts["token"]
+    targets = [dict(target) for target in client_cfg.targets]
+    if opts["host"]:
+        token = opts["token"]
+        if token is None:
+            token = targets[0].get("token", "") if targets else ""
+        targets = [receiver_target(opts["host"], opts["port"] or 8765, token)]
+    else:
+        for target in targets:
+            if opts["port"]:
+                target["port"] = opts["port"]
+            if opts["token"] is not None:
+                target["token"] = opts["token"]
 
-    if not host:
+    if not targets:
         failures += 1
         total += 1
-        _line("[失败] 接收端连通性：还没填接收端 IP（设置里填，或运行时加 --host）")
+        _line("[失败] 接收端连通性：还没有添加接收端（设置里添加，或运行时加 --host）")
         receiver_ok = False
     else:
-        state = {"ok": False}
-
         def _ping_check() -> str:
-            result = uploader.http_ping(host, port, token)
-            if not result.ok:
-                raise RuntimeError(result.message)
-            state["ok"] = True
-            return f"{host}:{port} 设备={result.remote_path}"
+            results = []
+            for target in targets:
+                result = uploader.http_ping(target["host"], int(target["port"]), target.get("token", ""))
+                results.append((target, result))
+            failed = [(target, result) for target, result in results if not result.ok]
+            detail = "; ".join(
+                f"{target['host']}:{target['port']} {result.message}"
+                for target, result in failed
+            )
+            if failed:
+                raise RuntimeError(detail)
+            return ", ".join(f"{target['host']} 设备={result.remote_path}" for target, result in results)
 
-        receiver_ok = check(f"接收端连通性（{host}:{port}）", _ping_check)
+        receiver_ok = check(f"接收端连通性（{len(targets)} 个）", _ping_check)
 
         if receiver_ok and opts["upload"]:
             def _upload_check() -> str:
@@ -175,8 +190,8 @@ def run(argv: List[str]) -> int:
                 buffer = io.BytesIO()
                 image.save(buffer, format="PNG")
                 stamp = time.strftime("%Y%m%d-%H%M%S")
-                result = uploader.http_upload(
-                    host, port, token, f"selftest-{stamp}.png", buffer.getvalue(), timeout=20.0
+                result = uploader.upload_targets(
+                    targets, f"selftest-{stamp}.png", buffer.getvalue()
                 )
                 if not result.ok:
                     raise RuntimeError(result.message)

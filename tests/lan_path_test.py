@@ -166,15 +166,16 @@ def main() -> int:
     if screen_ok:
         print("\n[6] 截图端指向局域网 IP，点球验证")
         (APPDATA_DIR / "client.json").write_text(json.dumps({
-            "host": ip, "port": PORT, "token": "lan-token",
+            "targets": [{"id": "lan-test", "name": ip, "host": ip, "port": PORT, "token": "lan-token"}],
             "capture_mode": "screen",
             "auto_start": False, "retry_enabled": False, "retry_interval": 60,
             "notify_on_send": True, "sound_on_send": False,
             "show_ball": True, "ball_size": 52, "ball_opacity": 1.0,
             "ball_color": "#e94f37", "ball_position": "",
         }, ensure_ascii=False, indent=2), encoding="utf-8")
+        (APPDATA_DIR / "mode.json").write_text(json.dumps({"mode": "screenshot"}), encoding="utf-8")
 
-        client = subprocess.Popen([str(EXE)], cwd=str(EXE.parent))
+        client = subprocess.Popen([str(EXE), "--client"], cwd=str(EXE.parent))
         import ctypes
         from ctypes import wintypes
         user32 = ctypes.windll.user32
@@ -226,6 +227,33 @@ def main() -> int:
         user32.mouse_event(0x0002, 0, 0, 0, 0)
         time.sleep(0.08)
         user32.mouse_event(0x0004, 0, 0, 0, 0)
+
+        editor = None
+        deadline = time.time() + 10
+        while time.time() < deadline and editor is None:
+            def find_editor(hwnd, _lparam):
+                wpid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(wpid))
+                title = ctypes.create_unicode_buffer(128)
+                user32.GetWindowTextW(hwnd, title, 128)
+                if wpid.value == client.pid and "编辑截图" in title.value:
+                    nonlocal editor
+                    editor = int(hwnd)
+                    return False
+                return True
+
+            user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)(find_editor), 0)
+            if editor is None:
+                time.sleep(0.2)
+        check(editor is not None, "截图后编辑器出现", str(editor))
+        if editor is not None:
+            user32.BringWindowToTop(editor)
+            user32.SetForegroundWindow(editor)
+            time.sleep(0.1)
+            user32.keybd_event(0x11, 0, 0, 0)
+            user32.keybd_event(0x0D, 0, 0, 0)
+            user32.keybd_event(0x0D, 0, 2, 0)
+            user32.keybd_event(0x11, 0, 2, 0)
 
         got = None
         deadline = time.time() + 20

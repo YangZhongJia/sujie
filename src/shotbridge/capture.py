@@ -133,4 +133,4 @@ def capture_window_at_cursor() -> CaptureResult:
     title = win32util.window_title(root)
     result = capture_rect(rect)
     result.title = title
-    return result\n
+    return result

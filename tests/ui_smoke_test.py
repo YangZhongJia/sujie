@@ -116,8 +116,6 @@ def main() -> int:  # noqa: C901
     print("\n[2] 设置对话框")
     config_path = Path(_TMP) / "ShotBridge" / "client.json"
     cfg2 = ClientConfig()
-    cfg2.host = "127.0.0.1"
-    cfg2.port = 18765
     dialog = SettingsDialog(cfg2)
     check(dialog.windowTitle() != "", "对话框有标题", dialog.windowTitle())
 
@@ -134,13 +132,17 @@ def main() -> int:  # noqa: C901
     dialog.host_edit.setText("192.168.1.99")
     dialog.port_spin.setValue(9999)
     dialog.token_edit.setText("abc123")
+    dialog._add_target()
     collected = dialog._collect()
-    check(collected.host == "192.168.1.99", "host 被正确收集", collected.host)
-    check(int(collected.port) == 9999, "port 被正确收集", str(collected.port))
-    check(collected.token == "abc123", "token 被正确收集", collected.token)
+    target = collected.targets[0]
+    check(target["host"] == "192.168.1.99", "接收端 IP 被正确收集", target["host"])
+    check(int(target["port"]) == 9999, "端口被正确收集", str(target["port"]))
+    check(target["token"] == "abc123", "每个接收端密钥被正确收集", target["token"])
 
     modes = [dialog.mode_combo.itemData(i) for i in range(dialog.mode_combo.count())]
     check(set(modes) == {"window", "monitor", "screen", "region"}, "四种截图方式都在下拉里", str(modes))
+    roles = [dialog.role_combo.itemData(i) for i in range(dialog.role_combo.count())]
+    check(set(roles) == {"screenshot", "receiver", "both"}, "三个工作模式都可选择", str(roles))
 
     # 模态框换成记录器，避免测试卡住
     seen: list[str] = []
@@ -164,15 +166,18 @@ def main() -> int:  # noqa: C901
     orig_test = settings_ui.uploader.test_connection
     settings_ui.QMessageBox = _FakeBox  # type: ignore[assignment]
     try:
+        dialog._targets.clear()
+        dialog._refresh_targets()
         dialog.host_edit.setText("")
         dialog._on_accept()
-        check(bool(seen) and dialog.result() != QDialog.Accepted, "host 为空时被拦下、不保存", seen[0] if seen else "")
+        check(dialog.result() == QDialog.Accepted, "可先保存模式、稍后配置接收端")
 
         # 填好 + 测试连接通过 → 应写入 client.json
         seen.clear()
         settings_ui.uploader.test_connection = lambda _c: UploadResult(True, "连接正常")
         dialog.host_edit.setText("127.0.0.1")
         dialog.port_spin.setValue(18765)
+        dialog._add_target()
         dialog._on_accept()
         check(dialog.result() == QDialog.Accepted, "填好后保存成功")
     finally:
@@ -182,12 +187,13 @@ def main() -> int:  # noqa: C901
     check(config_path.exists(), "设置已落盘", str(config_path))
     if config_path.exists():
         data = json.loads(config_path.read_text(encoding="utf-8"))
-        check(
-            data.get("host") == "127.0.0.1" and int(data.get("port") or 0) == 18765,
-            "落盘的 host/port 正确",
-            f"{data.get('host')}:{data.get('port')}",
-        )
-        check(len(data) >= 20, "配置字段齐全", f"{len(data)} 个键")
+        target = data.get("targets", [{}])[0]
+        check(target.get("host") == "127.0.0.1" and int(target.get("port") or 0) == 18765,
+              "落盘的接收端目标正确", f"{target.get('host')}:{target.get('port')}")
+        role_path = Path(_TMP) / "ShotBridge" / "mode.json"
+        check(json.loads(role_path.read_text(encoding="utf-8")).get("mode") == "screenshot",
+              "工作模式已记住")
+        check(len(data) == 12, "精简配置字段完整", f"{len(data)} 个键")
 
     dialog.deleteLater()
     app.processEvents()

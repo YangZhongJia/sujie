@@ -1,7 +1,9 @@
-"""统一入口：一个 exe 三种身份。
+"""统一入口：模式启动器、截图端、接收端和自检。
 
-    ShotBridge.exe                        → 截图端（悬浮球）
+    ShotBridge.exe                        → 按本机模式启动/首次选择模式
     ShotBridge.exe --receiver             → 接收端（托盘服务）
+    ShotBridge.exe --client               → 截图端（悬浮球）
+    ShotBridge.exe --mode both            → 同时启动截图端和接收端
     ShotBridge.exe --selftest [--host IP] → 无界面自检（排查用，不弹窗）
 
 这样安装包只需要带一份运行时（PySide6 等），体积减半，也避免两个 exe
@@ -27,8 +29,10 @@ if "--selftest" in sys.argv:
     _ROLE = "selftest"
 elif "--receiver" in sys.argv:
     _ROLE = "receiver"
-else:
+elif "--client" in sys.argv:
     _ROLE = "client"
+else:
+    _ROLE = "launcher"
 
 bootstrap.init_logging(_ROLE)
 bootstrap.log_environment()
@@ -38,8 +42,18 @@ try:
         from shotbridge.selftest import main as _main  # noqa: E402
     elif _ROLE == "receiver":
         from shotbridge.receiver import main as _main  # noqa: E402
-    else:
+    elif _ROLE == "client":
         from shotbridge.client import main as _main  # noqa: E402
+    else:
+        from shotbridge.launcher import main as _launcher_main  # noqa: E402
+
+        def _main():
+            try:
+                index = sys.argv.index("--mode")
+                mode = sys.argv[index + 1]
+            except (ValueError, IndexError):
+                mode = None
+            return _launcher_main(mode)
 except Exception:
     bootstrap.log(f"导入 {_ROLE} 模块失败：\n" + traceback.format_exc())
     raise
