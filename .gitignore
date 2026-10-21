@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Local builds and installers
+/dist/
+/build/*
+!/build/shotbridge.spec
+
+# Test captures and runtime output
+/tests/_e2e_saved/
+/tests/_lan_saved/
+*.log
+*.tmp
+
+# Local settings and credentials
+client.json
+receiver.json
+.env
+.env.*
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

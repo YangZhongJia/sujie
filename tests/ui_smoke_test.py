@@ -1,0 +1,225 @@
+"""界面层冒烟测试：设置对话框、悬浮球、托盘可用性 —— 不弹阻塞式窗口。
+
+后台测试覆盖不到的地方（设置页字段收集与校验、悬浮球绘制与接缝 clamp）在这里补上。
+
+用法： python tests\\ui_smoke_test.py
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+# 配置写到临时目录，别碰真实 client.json
+_TMP = tempfile.mkdtemp(prefix="sb_ui_")
+os.environ["APPDATA"] = _TMP
+
+results: list[tuple[bool, str, str]] = []
+
+
+def check(ok: bool, name: str, detail: str = "") -> bool:
+    results.append((bool(ok), name, detail))
+    print(("  [PASS] " if ok else "  [FAIL] ") + name + (f"  ({detail})" if detail else ""))
+    return bool(ok)
+
+
+def main() -> int:  # noqa: C901
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import (
+        QApplication,
+        QDialog,
+        QLabel,
+        QMessageBox,
+        QSystemTrayIcon,
+        QTabWidget,
+    )
+
+    from shotbridge import region, settings_ui
+    from shotbridge.balloon import FloatingBall, make_app_icon
+    from shotbridge.config import ClientConfig
+    from shotbridge.settings_ui import SettingsDialog
+    from shotbridge.uploader import UploadResult
+
+    app = QApplication.instance() or QApplication(sys.argv[:1])
+
+    print("\n[1] 悬浮球")
+    cfg = ClientConfig()
+    cfg.ball_size = 52
+    cfg.ball_opacity = 1.0
+    ball = FloatingBall(cfg)
+    check(ball.width() >= 40, "悬浮球有尺寸", f"{ball.width()}x{ball.height()}")
+    flags = ball.windowFlags()
+    check(bool(flags & Qt.FramelessWindowHint), "无边框窗口")
+    check(bool(flags & Qt.WindowStaysOnTopHint), "始终置顶")
+    check(bool(flags & Qt.WindowDoesNotAcceptFocus), "不抢焦点（保证前台窗口截图准确）")
+    check(ball.testAttribute(Qt.WA_TranslucentBackground), "背景透明")
+
+    ball.move(300, 200)
+    ball.show()
+    app.processEvents()
+    img = ball.grab().toImage()
+    check(img.width() > 0 and img.height() > 0, "悬浮球可以渲染", f"{img.width()}x{img.height()}")
+    opaque = sum(
+        1
+        for y in range(0, img.height(), 2)
+        for x in range(0, img.width(), 2)
+        if img.pixelColor(x, y).alpha() > 128
+    )
+    check(opaque > 50, "球体有可见像素", f"{opaque} 个不透明采样点")
+
+    # 双屏接缝：让球正好骑在第一块屏右边界上，clamp 必须把它整个挪进某块屏内
+    first = app.screens()[0].geometry()
+    ball.move(first.right() - ball.width() // 2, 100)
+    straddles = not any(s.availableGeometry().contains(ball.frameGeometry()) for s in app.screens())
+    ball._clamp_to_screen()
+    app.processEvents()
+    inside = any(s.availableGeometry().contains(ball.frameGeometry()) for s in app.screens())
+    check(straddles, "构造出骑在接缝上的小球", f"放到 ({first.right() - ball.width() // 2},100)")
+    check(inside, "跨屏接缝的小球被夹回屏内", f"({ball.x()},{ball.y()})")
+
+    print("\n[1b] 点击 / 拖动 判定")
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    def mouse(kind, lx, ly, gx, gy):
+        button = Qt.LeftButton if kind != QEvent.MouseMove else Qt.NoButton
+        buttons = Qt.NoButton if kind == QEvent.MouseButtonRelease else Qt.LeftButton
+        return QMouseEvent(kind, QPointF(lx, ly), QPointF(gx, gy), button, buttons, Qt.NoModifier)
+
+    clicks: list[int] = []
+    ball.clicked.connect(lambda: clicks.append(1))
+
+    # 纯粹点一下 → 必须触发 clicked
+    ball.mousePressEvent(mouse(QEvent.MouseButtonPress, 10, 10, 300, 200))
+    ball.mouseReleaseEvent(mouse(QEvent.MouseButtonRelease, 10, 10, 300, 200))
+    check(len(clicks) == 1, "原地按下抬起 = 一次点击", f"clicked {len(clicks)} 次")
+
+    # 拖出去再拖回原点 → 不能触发 clicked（防误截图）
+    ball.mousePressEvent(mouse(QEvent.MouseButtonPress, 10, 10, 300, 200))
+    ball.mouseMoveEvent(mouse(QEvent.MouseMove, 10, 10, 420, 320))
+    ball.mouseMoveEvent(mouse(QEvent.MouseMove, 10, 10, 300, 200))
+    ball.mouseReleaseEvent(mouse(QEvent.MouseButtonRelease, 10, 10, 300, 200))
+    check(len(clicks) == 1, "拖出去再回原点不算点击", f"clicked {len(clicks)} 次")
+
+    # 小抖动（未越过阈值）仍算点击
+    ball.mousePressEvent(mouse(QEvent.MouseButtonPress, 10, 10, 300, 200))
+    ball.mouseMoveEvent(mouse(QEvent.MouseMove, 10, 10, 302, 201))
+    ball.mouseReleaseEvent(mouse(QEvent.MouseButtonRelease, 10, 10, 302, 201))
+    check(len(clicks) == 2, "轻微抖动仍算点击", f"clicked {len(clicks)} 次")
+
+    print("\n[2] 设置对话框")
+    config_path = Path(_TMP) / "ShotBridge" / "client.json"
+    cfg2 = ClientConfig()
+    cfg2.host = "127.0.0.1"
+    cfg2.port = 18765
+    dialog = SettingsDialog(cfg2)
+    check(dialog.windowTitle() != "", "对话框有标题", dialog.windowTitle())
+
+    tabs = dialog.findChild(QTabWidget)
+    check(
+        tabs is not None and tabs.count() == 3,
+        "三个设置页",
+        " / ".join(tabs.tabText(i) for i in range(tabs.count())) if tabs else "没找到 QTabWidget",
+    )
+
+    hint_texts = [w.text() for w in dialog.findChildren(QLabel) if w.text()]
+    check(any("另一台电脑" in s for s in hint_texts), "接收端页有「在哪台电脑上配置」的引导说明")
+
+    dialog.host_edit.setText("192.168.1.99")
+    dialog.port_spin.setValue(9999)
+    dialog.token_edit.setText("abc123")
+    collected = dialog._collect()
+    check(collected.host == "192.168.1.99", "host 被正确收集", collected.host)
+    check(int(collected.port) == 9999, "port 被正确收集", str(collected.port))
+    check(collected.token == "abc123", "token 被正确收集", collected.token)
+
+    modes = [dialog.mode_combo.itemData(i) for i in range(dialog.mode_combo.count())]
+    check(set(modes) == {"window", "monitor", "screen", "region"}, "四种截图方式都在下拉里", str(modes))
+
+    # 模态框换成记录器，避免测试卡住
+    seen: list[str] = []
+
+    class _FakeBox:
+        Ok = QMessageBox.Ok
+        Yes = QMessageBox.Yes
+        No = QMessageBox.No
+
+        @staticmethod
+        def warning(_parent, _title, text, *a, **k):
+            seen.append(text)
+            return QMessageBox.Ok
+
+        @staticmethod
+        def question(_parent, _title, text, *a, **k):
+            seen.append(text)
+            return QMessageBox.Yes
+
+    orig_msgbox = settings_ui.QMessageBox
+    orig_test = settings_ui.uploader.test_connection
+    settings_ui.QMessageBox = _FakeBox  # type: ignore[assignment]
+    try:
+        dialog.host_edit.setText("")
+        dialog._on_accept()
+        check(bool(seen) and dialog.result() != QDialog.Accepted, "host 为空时被拦下、不保存", seen[0] if seen else "")
+
+        # 填好 + 测试连接通过 → 应写入 client.json
+        seen.clear()
+        settings_ui.uploader.test_connection = lambda _c: UploadResult(True, "连接正常")
+        dialog.host_edit.setText("127.0.0.1")
+        dialog.port_spin.setValue(18765)
+        dialog._on_accept()
+        check(dialog.result() == QDialog.Accepted, "填好后保存成功")
+    finally:
+        settings_ui.QMessageBox = orig_msgbox  # type: ignore[assignment]
+        settings_ui.uploader.test_connection = orig_test
+
+    check(config_path.exists(), "设置已落盘", str(config_path))
+    if config_path.exists():
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        check(
+            data.get("host") == "127.0.0.1" and int(data.get("port") or 0) == 18765,
+            "落盘的 host/port 正确",
+            f"{data.get('host')}:{data.get('port')}",
+        )
+        check(len(data) >= 20, "配置字段齐全", f"{len(data)} 个键")
+
+    dialog.deleteLater()
+    app.processEvents()
+
+    print("\n[3] 图标与区域遮罩")
+    icon = make_app_icon("#e94f37")
+    check(not icon.isNull(), "应用图标可用", f"{icon.availableSizes()}")
+    check(hasattr(region, "RegionSelector"), "区域选择器类存在")
+    check(callable(getattr(region, "select_region", None)), "select_region 可调用")
+
+    print("\n[4] 托盘可用性")
+    check(QSystemTrayIcon.isSystemTrayAvailable(), "系统托盘可用")
+
+    print("\n[5] 截图失败的提示文案")
+    from shotbridge import client as client_mod
+
+    locked = client_mod.capture_error_text(OSError("screen grab failed"))
+    check("锁定" in locked, "锁屏时提示看得懂", locked)
+    other = client_mod.capture_error_text(RuntimeError("找不到可截图的窗口"))
+    check("找不到可截图的窗口" in other, "其它异常带上原因", other)
+
+    ball.hide()
+    ball.deleteLater()
+    app.processEvents()
+
+    passed = sum(1 for ok, _, _ in results if ok)
+    print(f"\n==== 结果 {passed}/{len(results)} 通过 ====")
+    for ok, name, detail in results:
+        if not ok:
+            print(f"  失败：{name}  {detail}")
+    return 0 if passed == len(results) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
