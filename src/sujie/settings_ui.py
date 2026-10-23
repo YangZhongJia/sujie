@@ -18,8 +18,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QFrame,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -67,19 +69,41 @@ class SettingsDialog(QDialog):
         self._scan_thread: Optional[_ScanThread] = None
         self._targets = [dict(target) for target in config.targets]
         self.setWindowTitle("速截 设置")
-        self.setMinimumWidth(520)
+        self.setMinimumSize(820, 620)
         self._build()
         self._load()
 
     # ----------------------------------------------------------------- 构建
     def _build(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 18)
+        layout.setSpacing(14)
+
+        title = QLabel("设置")
+        title.setProperty("role", "title")
+        layout.addWidget(title)
+
         tabs = QTabWidget()
-        tabs.addTab(self._build_target_tab(), "接收端")
-        tabs.addTab(self._build_capture_tab(), "截图")
-        tabs.addTab(self._build_record_tab(), "录制")
-        tabs.addTab(self._build_general_tab(), "通用")
-        layout.addWidget(tabs)
+        tabs.setObjectName("settingsPages")
+        tabs.addTab(self._scroll_page(self._build_target_tab()), "接收端")
+        tabs.addTab(self._scroll_page(self._build_capture_tab()), "截图")
+        tabs.addTab(self._scroll_page(self._build_record_tab()), "录制")
+        tabs.addTab(self._scroll_page(self._build_general_tab()), "通用")
+        tabs.tabBar().hide()
+
+        self.navigation = QListWidget()
+        self.navigation.setObjectName("settingsNavigation")
+        self.navigation.setFixedWidth(132)
+        for label in ("接收端", "截图", "录制", "通用"):
+            self.navigation.addItem(QListWidgetItem(label))
+        self.navigation.currentRowChanged.connect(tabs.setCurrentIndex)
+        self.navigation.setCurrentRow(0)
+
+        body = QHBoxLayout()
+        body.setSpacing(18)
+        body.addWidget(self.navigation)
+        body.addWidget(tabs, 1)
+        layout.addLayout(body, 1)
 
         self.test_label = QLabel("")
         self.test_label.setWordWrap(True)
@@ -88,20 +112,31 @@ class SettingsDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText("保存")
         buttons.button(QDialogButtonBox.Cancel).setText("取消")
+        buttons.button(QDialogButtonBox.Ok).setProperty("primary", True)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    @staticmethod
+    def _scroll_page(page: QWidget) -> QScrollArea:
+        area = QScrollArea()
+        area.setFrameShape(QFrame.NoFrame)
+        area.setWidgetResizable(True)
+        area.setWidget(page)
+        return area
+
     def _build_target_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(12)
+
+        self._section_header(layout, "接收端", "选择接收截图的电脑。可以添加多个目标。")
 
         hint = QLabel(
-            "截图保存在【另一台电脑】上，所以要告诉本机往哪台机器发：\n"
-            "① 先在另一台电脑运行 速截 接收端（开始菜单 → 速截 接收端）；\n"
-            "② 这里填那台电脑的 IP 和端口，或点「扫描局域网设备」自动查找；\n"
-            "③ 可添加多台接收电脑，截图将发送到列表中的所有目标。"
+            "在另一台电脑运行速截接收端，再扫描局域网；也可以手动添加 IP 和端口。"
         )
+        hint.setProperty("role", "hint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
@@ -134,9 +169,9 @@ class SettingsDialog(QDialog):
         form.addRow("发送目标", self.target_list)
 
         target_buttons = QHBoxLayout()
-        add_button = QPushButton("添加 / 更新目标")
+        add_button = QPushButton("添加目标")
         add_button.clicked.connect(self._add_target)
-        remove_button = QPushButton("移除选中目标")
+        remove_button = QPushButton("移除")
         remove_button.clicked.connect(self._remove_target)
         target_buttons.addWidget(add_button)
         target_buttons.addWidget(remove_button)
@@ -148,7 +183,9 @@ class SettingsDialog(QDialog):
     def _build_capture_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(2, 2, 2, 2)
         form = QFormLayout()
+        self._section_header(layout, "截图", "选择单击悬浮球后的截图范围。")
 
         self.mode_combo = QComboBox()
         for key in CAPTURE_MODES:
@@ -162,11 +199,15 @@ class SettingsDialog(QDialog):
     def _build_record_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(10)
+
+        self._section_header(layout, "录制", "设置录屏范围、画质和保存方式。")
 
         hint = QLabel(
-            "长按悬浮球 → 往左滑开始录制；录制中再单击小球或按 Ctrl+Alt+R 停止。\n"
-            "录屏使用内置 ffmpeg，录制完成后会自动发送到上面配置的接收端。"
+            "长按悬浮球并向左滑开始录制。单击悬浮球或按 Ctrl+Alt+R 停止。"
         )
+        hint.setProperty("role", "hint")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
@@ -188,9 +229,9 @@ class SettingsDialog(QDialog):
         form.addRow("声音", self.record_audio_combo)
 
         audio_hint = QLabel(
-            "系统声音需要装虚拟声卡（如 VB-Cable）后在 ffmpeg 里选；"
-            "没装就选「不录声音」。麦克风会按 Windows 默认录音设备采集。"
+            "麦克风使用 Windows 默认录音设备。系统声音需先安装虚拟声卡。"
         )
+        audio_hint.setProperty("role", "hint")
         audio_hint.setWordWrap(True)
         form.addRow("", audio_hint)
 
@@ -222,7 +263,9 @@ class SettingsDialog(QDialog):
     def _build_general_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(2, 2, 2, 2)
         form = QFormLayout()
+        self._section_header(layout, "通用", "管理工作模式和常用行为。")
 
         self.autostart_check = QCheckBox("开机自动启动")
         form.addRow("", self.autostart_check)
@@ -269,6 +312,15 @@ class SettingsDialog(QDialog):
         layout.addLayout(form)
         layout.addStretch(1)
         return page
+
+    @staticmethod
+    def _section_header(layout: QVBoxLayout, title: str, subtitle: str) -> None:
+        heading = QLabel(title)
+        heading.setProperty("role", "sectionTitle")
+        layout.addWidget(heading)
+        description = QLabel(subtitle)
+        description.setProperty("role", "subtitle")
+        layout.addWidget(description)
 
     # ----------------------------------------------------------------- 载入
     def _load(self) -> None:

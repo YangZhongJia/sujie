@@ -577,6 +577,7 @@ class ClientApp(QObject):
     def show_history(self) -> None:
         dialog = history_mod.HistoryDialog(self.history, self.parent())
         dialog.resendRequested = self._resend_entry
+        dialog._sync_buttons()
         dialog.exec()
 
     def _resend_entry(self, entry) -> None:
@@ -931,6 +932,9 @@ def main(argv=None) -> int:
     app = QApplication(argv or sys.argv)
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
+    from .theme import apply_theme
+
+    apply_theme(app)
     bootstrap.log("QApplication 创建完成")
 
     controller = ClientApp(app)

@@ -56,7 +56,7 @@ Name: "{group}\速截（启动已选模式）"; Filename: "{app}\{#AppExe}"
 Name: "{group}\只截图"; Filename: "{app}\{#AppExe}"; Parameters: "--mode screenshot"
 Name: "{group}\只收图"; Filename: "{app}\{#AppExe}"; Parameters: "--mode receiver"
 Name: "{group}\同时截图和收图"; Filename: "{app}\{#AppExe}"; Parameters: "--mode both"
-Name: "{group}\选择本机工作模式"; Filename: "{app}\{#AppExe}"
+Name: "{group}\更改本机工作模式"; Filename: "{app}\{#AppExe}"; Parameters: "--choose-mode"
 Name: "{group}\使用说明"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\使用说明.md"""
 Name: "{group}\卸载 {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\速截（按设置模式启动）"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon

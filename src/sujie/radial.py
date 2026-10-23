@@ -248,7 +248,7 @@ class RadialMenu(QWidget):
             if not sector.enabled:
                 if not self.show_reserved:
                     continue
-                pen = QPen(QColor(255, 255, 255, 58), 1.3, Qt.DashLine)
+                pen = QPen(QColor(110, 110, 115, 75), 1.3, Qt.DashLine)
                 painter.setPen(pen)
                 painter.setBrush(Qt.NoBrush)
                 painter.drawPath(self._annular_path(radius, inner, start, end))
@@ -257,10 +257,10 @@ class RadialMenu(QWidget):
                 fill.setAlpha(226 if active else 0)
                 if active:
                     painter.setBrush(QBrush(fill))
-                    painter.setPen(QPen(QColor(255, 255, 255, 140), 1.3))
+                    painter.setPen(QPen(QColor(255, 255, 255, 220), 1.3))
                 else:
-                    painter.setBrush(QBrush(QColor(20, 22, 27, 198)))
-                    painter.setPen(QPen(QColor(255, 255, 255, 52), 1.2))
+                    painter.setBrush(QBrush(QColor(255, 255, 255, 238)))
+                    painter.setPen(QPen(QColor(210, 210, 215, 210), 1.2))
                 painter.drawPath(self._annular_path(radius, inner, start, end))
 
             middle = (start + end) / 2.0
@@ -275,9 +275,9 @@ class RadialMenu(QWidget):
             )
 
             if sector.enabled:
-                color = QColor(255, 255, 255, 255 if active else 205)
+                color = QColor(255, 255, 255, 255) if active else QColor(29, 29, 31, 220)
             else:
-                color = QColor(255, 255, 255, 96)
+                color = QColor(110, 110, 115, 130)
             self._draw_icon(painter, sector.icon, icon_center, icon_size, color)
 
             if show_labels:
@@ -302,12 +302,12 @@ class RadialMenu(QWidget):
 
         # 中心提示：当前选中的动作名
         ring = max(14.0, inner - 8)
-        painter.setBrush(QBrush(QColor(16, 18, 22, 170)))
-        painter.setPen(QPen(QColor(255, 255, 255, 46), 1.0))
+        painter.setBrush(QBrush(QColor(255, 255, 255, 248)))
+        painter.setPen(QPen(QColor(210, 210, 215, 230), 1.0))
         painter.drawEllipse(QPointF(cx, cy), ring, ring)
         if self._current is not None and show_labels:
             sector = SECTORS[self._current]
-            color = QColor(255, 255, 255, 235) if sector.enabled else QColor(255, 255, 255, 120)
+            color = QColor(29, 29, 31) if sector.enabled else QColor(110, 110, 115)
             painter.setPen(QPen(color))
             font = QFont(self.font())
             font.setPixelSize(max(10, int(radius * 0.085)))

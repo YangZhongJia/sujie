@@ -4,6 +4,7 @@
     速截.exe --receiver             → 接收端（托盘服务）
     速截.exe --client               → 截图端（悬浮球）
     速截.exe --mode both            → 同时启动截图端和接收端
+    速截.exe --choose-mode          → 重新选择本机工作模式
     速截.exe --selftest [--host IP] → 无界面自检（排查用，不弹窗）
 
 这样安装包只需要带一份运行时（PySide6 等），体积减半，也避免两个 exe
@@ -53,7 +54,7 @@ try:
                 mode = sys.argv[index + 1]
             except (ValueError, IndexError):
                 mode = None
-            return _launcher_main(mode)
+            return _launcher_main(mode, force_choose="--choose-mode" in sys.argv)
 except Exception:
     bootstrap.log(f"导入 {_ROLE} 模块失败：\n" + traceback.format_exc())
     raise

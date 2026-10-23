@@ -24,8 +24,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
+    QStackedWidget,
     QVBoxLayout,
+    QWidget,
 )
 
 from . import APP_NAME, bootstrap, paths, win32util
@@ -259,31 +262,57 @@ class HistoryDialog(QDialog):
         self.resendRequested = None  # 由 client 赋值：callable(entry) -> None
 
         self.setWindowTitle(f"{APP_NAME} · 最近记录")
-        self.setMinimumSize(460, 540)
+        self.setMinimumSize(620, 600)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 18, 22, 18)
+        layout.setSpacing(12)
+        title = QLabel("最近记录")
+        title.setProperty("role", "title")
+        layout.addWidget(title)
         self.summary = QLabel("共 0 条")
+        self.summary.setProperty("role", "subtitle")
         layout.addWidget(self.summary)
 
+        self.content = QStackedWidget(self)
+        self.empty_page = QWidget(self)
+        empty_layout = QVBoxLayout(self.empty_page)
+        empty_layout.setAlignment(Qt.AlignCenter)
+        empty_title = QLabel("暂无记录")
+        empty_title.setProperty("role", "sectionTitle")
+        empty_hint = QLabel("截图或录制发送后会显示在这里。")
+        empty_hint.setProperty("role", "subtitle")
+        empty_layout.addWidget(empty_title, 0, Qt.AlignCenter)
+        empty_layout.addWidget(empty_hint, 0, Qt.AlignCenter)
+
         self.list = QListWidget(self)
-        self.list.setIconSize(QSize(64, 64))
+        self.list.setIconSize(QSize(72, 72))
         self.list.setSelectionMode(QAbstractItemView.SingleSelection)
         self.list.itemDoubleClicked.connect(lambda _item: self._open_selected())
-        layout.addWidget(self.list, 1)
+        self.list.currentRowChanged.connect(lambda _row: self._sync_buttons())
+        self.content.addWidget(self.empty_page)
+        self.content.addWidget(self.list)
+        layout.addWidget(self.content, 1)
 
         buttons = QHBoxLayout()
+        buttons.setSpacing(8)
         self.open_button = QPushButton("打开")
+        self.open_button.setProperty("primary", True)
         self.open_button.clicked.connect(self._open_selected)
         self.resend_button = QPushButton("重新发送")
         self.resend_button.clicked.connect(self._resend_selected)
         self.folder_button = QPushButton("所在文件夹")
         self.folder_button.clicked.connect(self._open_folder)
         self.clear_button = QPushButton("清空")
+        self.clear_button.setProperty("destructive", True)
         self.clear_button.clicked.connect(self._clear)
         close_button = QPushButton("关闭")
         close_button.clicked.connect(self.accept)
-        for button in (self.open_button, self.resend_button, self.folder_button, self.clear_button, close_button):
+        for button in (self.open_button, self.resend_button, self.folder_button):
             buttons.addWidget(button)
+        buttons.addStretch(1)
+        buttons.addWidget(self.clear_button)
+        buttons.addWidget(close_button)
         layout.addLayout(buttons)
 
         self.reload()
@@ -299,6 +328,7 @@ class HistoryDialog(QDialog):
                 item.setIcon(icon)
             item.setData(Qt.UserRole, entry)
             self.list.addItem(item)
+        self.content.setCurrentWidget(self.list if self._entries else self.empty_page)
         self.summary.setText(f"共 {len(self._entries)} 条")
         self._sync_buttons()
 
@@ -329,6 +359,7 @@ class HistoryDialog(QDialog):
         self.open_button.setEnabled(has_file)
         self.resend_button.setEnabled(has_file and callable(self.resendRequested))
         self.folder_button.setEnabled(bool(entry and entry.local_path))
+        self.clear_button.setEnabled(bool(self._entries))
 
     # ---------------------------------------------------------------- 动作
     def _open_selected(self) -> None:
@@ -351,6 +382,15 @@ class HistoryDialog(QDialog):
         self.resendRequested(entry)
 
     def _clear(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "清空最近记录",
+            "这会删除记录和对应的本地副本。要继续吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
         self._history.clear()
         self.reload()
 

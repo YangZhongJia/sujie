@@ -6,9 +6,10 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QKeySequence, QPainter, QPen, QPolygonF, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QInputDialog,
+    QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -54,12 +55,14 @@ class _Canvas(QWidget):
                 painter.end()
                 continue
             painter = QPainter(image)
-            painter.setPen(QPen(QColor("#ff453a"), max(4, image.width() // 900),
+            painter.setPen(QPen(QColor("#ff3b30"), max(4, image.width() // 900),
                                 Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             if action["kind"] == "pen":
                 painter.drawPolyline(QPolygonF(action["points"]))
             elif action["kind"] == "text":
-                font = QFont("Microsoft YaHei", max(18, image.width() // 80))
+                font = QFont()
+                font.setFamilies(["Microsoft YaHei UI", "Segoe UI"])
+                font.setPixelSize(max(18, image.width() // 80))
                 font.setBold(True)
                 painter.setFont(font)
                 painter.drawText(action["point"], action["text"])
@@ -83,15 +86,18 @@ class _Canvas(QWidget):
 
     def paintEvent(self, event):  # noqa: N802
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#262626"))
+        painter.fillRect(self.rect(), QColor("#e5e5ea"))
         rect, scale = self._layout()
         painter.drawImage(rect, self._render())
+        painter.setPen(QPen(QColor("#d2d2d7"), 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(rect.adjusted(0, 0, -1, -1))
         if self._start is None:
             return
         painter.save()
         painter.translate(rect.x(), rect.y())
         painter.scale(scale, scale)
-        painter.setPen(QPen(QColor("#ff453a"), max(2.0, 4.0 / scale), Qt.SolidLine,
+        painter.setPen(QPen(QColor("#ff3b30"), max(2.0, 4.0 / scale), Qt.SolidLine,
                             Qt.RoundCap, Qt.RoundJoin))
         if self.tool == "pen" and len(self._points) > 1:
             painter.drawPolyline(QPolygonF(self._points))
@@ -185,33 +191,50 @@ class ScreenshotEditor(QDialog):
         self.setWindowModality(Qt.ApplicationModal)
         self.resize(1000, 720)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 14)
+        layout.setSpacing(12)
         toolbar = QHBoxLayout()
+        toolbar.setSpacing(6)
         self.canvas = _Canvas(image, self)
         self._tool_buttons: dict[str, QPushButton] = {}
         for tool, label in TOOLS:
             button = QPushButton(label)
+            button.setProperty("tool", True)
             button.setCheckable(True)
             button.setChecked(tool == "pen")
             button.clicked.connect(lambda checked=False, t=tool: self._select_tool(t))
             toolbar.addWidget(button)
             self._tool_buttons[tool] = button
         undo = QPushButton("撤销")
+        undo.setToolTip("撤销上一步")
         undo.clicked.connect(self.canvas.undo)
         redo = QPushButton("重做")
+        redo.setToolTip("恢复上一步")
         redo.clicked.connect(self.canvas.redo)
+        divider = QFrame()
+        divider.setFrameShape(QFrame.VLine)
+        divider.setFrameShadow(QFrame.Plain)
         toolbar.addWidget(undo)
         toolbar.addWidget(redo)
+        toolbar.addWidget(divider)
+        size_label = QLabel(f"{image.width()} × {image.height()}")
+        size_label.setProperty("role", "subtitle")
+        toolbar.addWidget(size_label)
         toolbar.addStretch(1)
         layout.addLayout(toolbar)
         layout.addWidget(self.canvas, 1)
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
-        buttons.button(QDialogButtonBox.Cancel).setText("取消")
-        buttons.button(QDialogButtonBox.Save).setText("发送")
-        buttons.button(QDialogButtonBox.Save).setDefault(True)
-        buttons.button(QDialogButtonBox.Save).setAutoDefault(True)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
-        layout.addWidget(buttons)
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+        cancel = QPushButton("取消")
+        cancel.clicked.connect(self.reject)
+        send = QPushButton("发送")
+        send.setProperty("primary", True)
+        send.setDefault(True)
+        send.setAutoDefault(True)
+        send.clicked.connect(self.accept)
+        footer.addWidget(cancel)
+        footer.addWidget(send)
+        layout.addLayout(footer)
         send_shortcut = QShortcut(QKeySequence("Ctrl+Enter"), self)
         send_shortcut.activated.connect(self.accept)
 

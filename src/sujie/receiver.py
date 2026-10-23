@@ -247,6 +247,9 @@ def _receiver_main_gui(argv=None) -> int:
     win32util.enable_dpi_awareness()
     app = QApplication(argv or sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    from .theme import apply_theme
+
+    apply_theme(app)
     bootstrap.log("QApplication 创建完成")
 
     config = ReceiverConfig.load()
@@ -258,7 +261,7 @@ def _receiver_main_gui(argv=None) -> int:
         config.save()
     bootstrap.log(f"配置已加载：端口={config.port} 目录={config.resolved_save_dir()}")
 
-    icon = make_app_icon("#2f7de1")
+    icon = make_app_icon("#0066cc")
     tray = QSystemTrayIcon(icon, app)
     tray.setToolTip(f"{APP_NAME} 接收端")
 
