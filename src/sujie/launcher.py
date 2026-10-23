@@ -46,6 +46,7 @@ def launch_mode(mode: str, current_role: Optional[str] = None, app=None) -> None
 
 
 def _choose_mode(current_mode: Optional[str] = None) -> str:
+    from PySide6.QtCore import QEvent, QObject, Qt
     from PySide6.QtWidgets import (
         QApplication, QDialog, QDialogButtonBox, QFrame, QHBoxLayout, QLabel,
         QButtonGroup, QRadioButton, QVBoxLayout,
@@ -70,8 +71,20 @@ def _choose_mode(current_mode: Optional[str] = None) -> str:
 
     options = {}
     rows = {}
+    click_filters = []
     group = QButtonGroup(dialog)
     group.setExclusive(True)
+
+    class SelectOptionOnClick(QObject):
+        def __init__(self, option):
+            super().__init__(dialog)
+            self.option = option
+
+        def eventFilter(self, watched, event):  # noqa: N802
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self.option.setChecked(True)
+            return False
+
     descriptions = {
         "screenshot": "截取并编辑图片，再发送到其他电脑。",
         "receiver": "在后台接收截图，并保存到这台电脑。",
@@ -80,6 +93,7 @@ def _choose_mode(current_mode: Optional[str] = None) -> str:
     for mode in MODE_CHOICES:
         row = QFrame()
         row.setObjectName("modeOption")
+        row.setCursor(Qt.PointingHandCursor)
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(14, 10, 14, 10)
         option = QRadioButton(MODE_LABELS[mode])
@@ -102,6 +116,10 @@ def _choose_mode(current_mode: Optional[str] = None) -> str:
             target.style().polish(target)
 
         option.toggled.connect(update_row)
+        click_filter = SelectOptionOnClick(option)
+        row.installEventFilter(click_filter)
+        detail.installEventFilter(click_filter)
+        click_filters.append(click_filter)
 
     selected = current_mode if current_mode in options else "screenshot"
     options[selected].setChecked(True)

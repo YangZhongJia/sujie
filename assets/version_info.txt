@@ -1,7 +1,7 @@
 ﻿VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 1, 0, 0),
-    prodvers=(1, 1, 0, 0),
+    filevers=(1, 1, 1, 0),
+    prodvers=(1, 1, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -15,12 +15,12 @@
         '080404b0',
         [StringStruct('CompanyName', '速截'),
          StringStruct('FileDescription', '速截 局域网截图传输'),
-         StringStruct('FileVersion', '1.0.0.0'),
+         StringStruct('FileVersion', '1.1.1.0'),
          StringStruct('InternalName', '速截'),
          StringStruct('LegalCopyright', ''),
          StringStruct('OriginalFilename', '速截.exe'),
          StringStruct('ProductName', '速截'),
-         StringStruct('ProductVersion', '1.0.0.0')])
+         StringStruct('ProductVersion', '1.1.1.0')])
     ]),
     VarFileInfo([VarStruct('Translation', [2052, 1200])])
   ]

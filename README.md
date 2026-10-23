@@ -75,7 +75,7 @@ python -m pip install PySide6 Pillow PyInstaller imageio-ffmpeg
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
 ```
 
-安装包生成在 `dist\installer\速截-Setup-1.1.0.exe`。构建脚本会从 `imageio-ffmpeg` 准备录屏组件；大型 ffmpeg 文件不提交到仓库。
+安装包生成在 `dist\installer\速截-Setup-1.1.1.exe`。构建脚本会从 `imageio-ffmpeg` 准备录屏组件；大型 ffmpeg 文件不提交到仓库。
 
 ## 许可
 

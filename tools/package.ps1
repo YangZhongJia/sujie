@@ -81,8 +81,11 @@ if (-not (Test-Path $ffmpeg)) {
 # ---------------------------------------------------------------- 1. 构建
 if (-not $SkipBuild) {
     Write-Step '1/4 清理旧产物'
-    # 正在运行的 exe 会锁住 _internal\*.dll，导致删除失败（WinError 5）
-    Get-Process -Name 速截 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    # 只停止本工作区的旧产物；不要关闭 Program Files 中用户正在用的接收端。
+    $distExe = [IO.Path]::GetFullPath((Join-Path $root 'dist\速截\速截.exe'))
+    Get-Process -Name 速截 -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and [IO.Path]::GetFullPath($_.Path) -ieq $distExe } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
     foreach ($p in @('dist\速截', 'build\work')) {
         if (Test-Path $p) { Remove-Item $p -Recurse -Force }
