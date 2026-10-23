@@ -158,6 +158,30 @@ class ClientConfig(_JsonConfig):
     ball_color: str = "#e94f37"
     ball_position: str = ""          # "x,y" 记忆位置
 
+    # 长按扇形菜单
+    radial_enabled: bool = True
+    radial_long_press_ms: int = 500
+    radial_radius: int = 132
+    radial_show_reserved: bool = True
+    radial_hint_shown: bool = False
+
+    # 贴图钉屏
+    hide_pins_when_capturing: bool = True
+    pin_max_count: int = 8
+
+    # 最近记录
+    history_limit: int = 200
+
+    # 录屏
+    record_mode: str = "monitor"     # monitor | region | window
+    record_fps: int = 30
+    record_audio: str = "none"       # none | mic
+    record_mic_device: str = ""
+    record_send_after: bool = True
+    record_keep_local: bool = False
+    record_dir: str = ""
+    record_max_mb: int = 500
+
     _file_name = CLIENT_CONFIG_NAME
     _defaults = {
         "targets": [],
@@ -172,6 +196,22 @@ class ClientConfig(_JsonConfig):
         "ball_opacity": 0.9,
         "ball_color": "#e94f37",
         "ball_position": "",
+        "radial_enabled": True,
+        "radial_long_press_ms": 500,
+        "radial_radius": 132,
+        "radial_show_reserved": True,
+        "radial_hint_shown": False,
+        "hide_pins_when_capturing": True,
+        "pin_max_count": 8,
+        "history_limit": 200,
+        "record_mode": "monitor",
+        "record_fps": 30,
+        "record_audio": "none",
+        "record_mic_device": "",
+        "record_send_after": True,
+        "record_keep_local": False,
+        "record_dir": "",
+        "record_max_mb": 500,
     }
 
 
@@ -204,6 +244,7 @@ class ReceiverConfig(_JsonConfig):
     filename_prefix: str = "shot"    # 文件名前缀
     auto_start: bool = False
     bind_address: str = "0.0.0.0"
+    max_upload_mb: int = 2048         # 单个文件上限（录屏会比较大），0 表示不限制
 
     _file_name = RECEIVER_CONFIG_NAME
     _defaults = {
@@ -214,6 +255,7 @@ class ReceiverConfig(_JsonConfig):
         "filename_prefix": "shot",
         "auto_start": False,
         "bind_address": "0.0.0.0",
+        "max_upload_mb": 2048,
     }
 
     def resolved_save_dir(self) -> str:

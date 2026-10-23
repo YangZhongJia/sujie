@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -34,6 +36,16 @@ from .config import (
     MODE_LABELS,
     receiver_target,
 )
+
+RECORD_MODES = ("monitor", "screen", "window", "region")
+RECORD_MODE_LABELS = {
+    "monitor": "当前显示器（鼠标所在那块）",
+    "screen": "整个屏幕（所有显示器）",
+    "window": "当前活动窗口",
+    "region": "手动框选区域",
+}
+RECORD_AUDIO_CHOICES = ("none", "mic")
+RECORD_AUDIO_LABELS = {"none": "不录声音", "mic": "麦克风"}
 
 
 class _ScanThread(QThread):
@@ -65,6 +77,7 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(self._build_target_tab(), "接收端")
         tabs.addTab(self._build_capture_tab(), "截图")
+        tabs.addTab(self._build_record_tab(), "录制")
         tabs.addTab(self._build_general_tab(), "通用")
         layout.addWidget(tabs)
 
@@ -146,6 +159,66 @@ class SettingsDialog(QDialog):
         layout.addStretch(1)
         return page
 
+    def _build_record_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        hint = QLabel(
+            "长按悬浮球 → 往左滑开始录制；录制中再单击小球或按 Ctrl+Alt+R 停止。\n"
+            "录屏使用内置 ffmpeg，录制完成后会自动发送到上面配置的接收端。"
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        form = QFormLayout()
+
+        self.record_mode_combo = QComboBox()
+        for key in RECORD_MODES:
+            self.record_mode_combo.addItem(RECORD_MODE_LABELS[key], key)
+        form.addRow("录制范围", self.record_mode_combo)
+
+        self.record_fps_spin = QSpinBox()
+        self.record_fps_spin.setRange(10, 60)
+        self.record_fps_spin.setSuffix(" 帧/秒")
+        form.addRow("帧率", self.record_fps_spin)
+
+        self.record_audio_combo = QComboBox()
+        for key in RECORD_AUDIO_CHOICES:
+            self.record_audio_combo.addItem(RECORD_AUDIO_LABELS[key], key)
+        form.addRow("声音", self.record_audio_combo)
+
+        audio_hint = QLabel(
+            "系统声音需要装虚拟声卡（如 VB-Cable）后在 ffmpeg 里选；"
+            "没装就选「不录声音」。麦克风会按 Windows 默认录音设备采集。"
+        )
+        audio_hint.setWordWrap(True)
+        form.addRow("", audio_hint)
+
+        self.record_max_spin = QSpinBox()
+        self.record_max_spin.setRange(0, 20000)
+        self.record_max_spin.setSuffix(" MB")
+        self.record_max_spin.setSpecialValueText("不限制")
+        form.addRow("单个文件上限", self.record_max_spin)
+
+        self.record_send_check = QCheckBox("录制完成后自动发送")
+        form.addRow("", self.record_send_check)
+
+        self.record_keep_check = QCheckBox("发送后保留本地录像文件")
+        form.addRow("", self.record_keep_check)
+
+        dir_row = QHBoxLayout()
+        self.record_dir_edit = QLineEdit()
+        self.record_dir_edit.setPlaceholderText("留空则用「视频\\速截」")
+        browse_button = QPushButton("选择…")
+        browse_button.clicked.connect(self._pick_record_dir)
+        dir_row.addWidget(self.record_dir_edit, 1)
+        dir_row.addWidget(browse_button)
+        form.addRow("录像保存目录", dir_row)
+
+        layout.addLayout(form)
+        layout.addStretch(1)
+        return page
+
     def _build_general_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -165,6 +238,34 @@ class SettingsDialog(QDialog):
             self.role_combo.addItem(MODE_LABELS[key], key)
         form.addRow("此电脑的工作模式", self.role_combo)
 
+        self.radial_check = QCheckBox("长按悬浮球弹出四向菜单（上截图 / 左录屏 / 右贴图 / 下记录）")
+        form.addRow("", self.radial_check)
+
+        self.radial_press_spin = QSpinBox()
+        self.radial_press_spin.setRange(200, 1500)
+        self.radial_press_spin.setSingleStep(50)
+        self.radial_press_spin.setSuffix(" 毫秒")
+        form.addRow("长按判定时长", self.radial_press_spin)
+
+        self.radial_radius_spin = QSpinBox()
+        self.radial_radius_spin.setRange(88, 190)
+        self.radial_radius_spin.setSuffix(" 像素")
+        form.addRow("菜单半径", self.radial_radius_spin)
+
+        self.radial_reserved_check = QCheckBox("在菜单里显示暂未启用的方向")
+        form.addRow("", self.radial_reserved_check)
+
+        self.pin_hide_check = QCheckBox("截图 / 录屏时自动隐藏钉图")
+        form.addRow("", self.pin_hide_check)
+
+        self.pin_max_spin = QSpinBox()
+        self.pin_max_spin.setRange(1, 50)
+        form.addRow("最多钉图数量", self.pin_max_spin)
+
+        self.history_spin = QSpinBox()
+        self.history_spin.setRange(20, 2000)
+        form.addRow("保留最近记录条数", self.history_spin)
+
         layout.addLayout(form)
         layout.addStretch(1)
         return page
@@ -180,6 +281,25 @@ class SettingsDialog(QDialog):
         self.autostart_check.setChecked(bool(c.auto_start))
         self.retry_check.setChecked(bool(c.retry_enabled))
         self.notify_check.setChecked(bool(c.notify_on_send))
+
+        index = self.record_mode_combo.findData(c.record_mode)
+        self.record_mode_combo.setCurrentIndex(max(index, 0))
+        self.record_fps_spin.setValue(int(c.record_fps or 30))
+        index = self.record_audio_combo.findData(c.record_audio or "none")
+        self.record_audio_combo.setCurrentIndex(max(index, 0))
+        self.record_max_spin.setValue(int(c.record_max_mb or 0))
+        self.record_send_check.setChecked(bool(c.record_send_after))
+        self.record_keep_check.setChecked(bool(c.record_keep_local))
+        self.record_dir_edit.setText(c.record_dir or "")
+
+        self.radial_check.setChecked(bool(c.radial_enabled))
+        self.radial_press_spin.setValue(int(c.radial_long_press_ms or 500))
+        self.radial_radius_spin.setValue(int(c.radial_radius or 132))
+        self.radial_reserved_check.setChecked(bool(c.radial_show_reserved))
+        self.pin_hide_check.setChecked(bool(c.hide_pins_when_capturing))
+        self.pin_max_spin.setValue(int(c.pin_max_count or 8))
+        self.history_spin.setValue(int(c.history_limit or 200))
+
         mode = AppModeConfig.load().mode or "screenshot"
         index = self.role_combo.findData(mode)
         self.role_combo.setCurrentIndex(max(index, 0))
@@ -268,8 +388,32 @@ class SettingsDialog(QDialog):
         c.auto_start = self.autostart_check.isChecked()
         c.retry_enabled = self.retry_check.isChecked()
         c.notify_on_send = self.notify_check.isChecked()
+
+        c.record_mode = self.record_mode_combo.currentData()
+        c.record_fps = int(self.record_fps_spin.value())
+        c.record_audio = self.record_audio_combo.currentData()
+        c.record_max_mb = int(self.record_max_spin.value())
+        c.record_send_after = self.record_send_check.isChecked()
+        c.record_keep_local = self.record_keep_check.isChecked()
+        c.record_dir = self.record_dir_edit.text().strip()
+
+        c.radial_enabled = self.radial_check.isChecked()
+        c.radial_long_press_ms = int(self.radial_press_spin.value())
+        c.radial_radius = int(self.radial_radius_spin.value())
+        c.radial_show_reserved = self.radial_reserved_check.isChecked()
+        c.hide_pins_when_capturing = self.pin_hide_check.isChecked()
+        c.pin_max_count = int(self.pin_max_spin.value())
+        c.history_limit = int(self.history_spin.value())
+
         self.app_mode = self.role_combo.currentData()
         return c
+
+    def _pick_record_dir(self) -> None:
+        directory = QFileDialog.getExistingDirectory(
+            self, "选择录像保存目录", self.record_dir_edit.text().strip() or os.path.expanduser("~")
+        )
+        if directory:
+            self.record_dir_edit.setText(directory)
 
     def _on_accept(self) -> None:
         config = self._collect()

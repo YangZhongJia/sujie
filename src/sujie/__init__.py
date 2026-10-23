@@ -16,6 +16,6 @@
     receiver     接收端主程序（HTTP 服务 + 托盘）
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 APP_NAME = "速截"
 APP_TITLE = "速截 截图传输"

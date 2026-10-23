@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import os
+import shutil
 import time
 import urllib.error
 import urllib.parse
@@ -104,6 +106,145 @@ def http_upload(
         return UploadResult(False, f"HTTP {exc.code} {detail}")
     except Exception as exc:
         return UploadResult(False, f"上传失败：{exc}")
+
+
+# ----------------------------------------------------- HTTP（流式，适合录屏）
+
+CHUNK_SIZE = 1024 * 1024
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+VIDEO_SUFFIXES = (".mp4", ".webm", ".mkv", ".mov", ".avi")
+MEDIA_SUFFIXES = IMAGE_SUFFIXES + VIDEO_SUFFIXES
+
+
+def _remote_limit_mb(host: str, port: int, token: str) -> int:
+    """问一下接收端的单文件上限；问不到就返回 0。"""
+    request = urllib.request.Request(f"http://{host}:{port}/ping")
+    request.add_header("User-Agent", USER_AGENT)
+    if token:
+        request.add_header("X-Token", token)
+    with _opener().open(request, timeout=3.0) as response:
+        payload = json.loads(response.read().decode("utf-8", "replace"))
+    return int(payload.get("max_upload_mb") or 0)
+
+
+def http_upload_file(
+    host: str,
+    port: int,
+    token: str,
+    filename: str,
+    path: str,
+    size: Optional[int] = None,
+    timeout: float = 120.0,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> UploadResult:
+    """按 1MB 分块把磁盘文件 POST 给接收端。
+
+    录屏动辄几十上百 MB，不能像截图那样整段放进内存（``http_upload`` 就是那样），
+    所以这里直接用 ``http.client`` 自己拼请求体，读一块发一块。
+    注意：``http.client`` 天生不走系统代理，正好符合局域网直连的要求。
+    """
+    try:
+        total = int(size if size is not None else os.path.getsize(path))
+    except OSError as exc:
+        return UploadResult(False, f"读取文件失败：{exc}")
+
+    connection = None
+    try:
+        connection = http.client.HTTPConnection(host, int(port), timeout=timeout)
+        connection.putrequest("POST", "/upload")
+        connection.putheader("User-Agent", USER_AGENT)
+        connection.putheader("Content-Type", "application/octet-stream")
+        connection.putheader("X-File-Name", urllib.parse.quote(filename))
+        connection.putheader("X-Size", str(total))
+        connection.putheader("X-Stream", "1")
+        if token:
+            connection.putheader("X-Token", token)
+        connection.putheader("Content-Length", str(total))
+        connection.endheaders()
+
+        sent = 0
+        with open(path, "rb") as handle:
+            while True:
+                chunk = handle.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                connection.send(chunk)
+                sent += len(chunk)
+                if progress is not None:
+                    try:
+                        progress(sent, total)
+                    except Exception:  # 进度回调不允许影响上传
+                        pass
+
+        response = connection.getresponse()
+        body = response.read().decode("utf-8", "replace")
+        try:
+            parsed = json.loads(body)
+        except ValueError:
+            parsed = {}
+        if response.status == 401:
+            return UploadResult(False, "密钥不匹配（接收端要求 token）")
+        if response.status >= 400:
+            return UploadResult(False, f"HTTP {response.status} {parsed.get('message', '')}".strip())
+        return UploadResult(True, parsed.get("message", "上传成功"), str(parsed.get("path", "")))
+    except Exception as exc:
+        # 接收端体积超限时会直接掐断连接（它不想白读几十 MB），客户端只会看到
+        # 10053/10054。这里回头查一次上限，把「文件太大」这个真实原因翻译出来。
+        message = f"上传失败：{exc}"
+        try:
+            limit = _remote_limit_mb(host, int(port), token)
+        except Exception:
+            limit = 0
+        if limit and total > limit * 1024 * 1024:
+            message = (
+                f"文件太大：{total / 1048576:.0f} MB，接收端上限 {limit} MB"
+                "（可以在接收端设置里调大）"
+            )
+        return UploadResult(False, message)
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+
+def upload_targets_file(
+    targets: List[dict],
+    filename: str,
+    path: str,
+    size: Optional[int] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
+) -> UploadResult:
+    """把磁盘上的文件（图片或视频）发给所有接收端。"""
+    if not targets:
+        return UploadResult(False, "尚未配置接收端地址")
+    failed = []
+    sent = 0
+    for target in targets:
+        result = http_upload_file(
+            str(target.get("host", "")),
+            int(target.get("port", 8765)),
+            str(target.get("token", "")),
+            filename,
+            path,
+            size=size,
+            progress=progress,
+        )
+        if result.ok:
+            sent += 1
+        else:
+            failed.append({**target, "error": result.message})
+    total = len(targets)
+    message = f"已发送到 {sent}/{total} 个接收端"
+    if failed:
+        # 只有一个接收端时把具体原因透出来（例如「文件太大」「密钥不匹配」），
+        # 否则用户只看到「0/1 个接收端」，不知道该怎么处理。
+        if total == 1:
+            message = str(failed[0].get("error") or message)
+        else:
+            message += f"；{len(failed)} 个失败"
+    return UploadResult(not failed, message, successful_targets=sent, total_targets=total, failed_targets=failed)
 
 
 # ------------------------------------------------------------------ 统一入口
@@ -207,6 +348,38 @@ class Outbox:
             items.append((name, data, original, targets if isinstance(targets, list) else []))
         return items
 
+    def add_file(self, filename: str, source: str, targets: Optional[List[dict]] = None) -> str:
+        """把录像这类大文件放进队列：只复制文件，不读进内存。"""
+        os.makedirs(self.directory, exist_ok=True)
+        safe = _safe_filename(filename)
+        target = os.path.join(self.directory, safe)
+        stem, ext = os.path.splitext(safe)
+        index = 1
+        while os.path.exists(target):
+            target = os.path.join(self.directory, f"{stem}-{index}{ext}")
+            index += 1
+        shutil.copy2(source, target)
+        _write_meta(target, {"filename": filename, "targets": targets or []})
+        return target
+
+    def pending_files(self) -> List[Tuple[str, str, str, List[dict]]]:
+        """返回 [(队列文件名, 完整路径, 原始文件名, 失败目标)]，图片和视频都算。"""
+        items: List[Tuple[str, str, str, List[dict]]] = []
+        if not os.path.isdir(self.directory):
+            return items
+        for name in sorted(os.listdir(self.directory)):
+            if not name.lower().endswith(MEDIA_SUFFIXES):
+                continue
+            full = os.path.join(self.directory, name)
+            meta = _read_meta(full)
+            if isinstance(meta, dict):
+                original = str(meta.get("filename", name))
+                targets = meta.get("targets", [])
+            else:  # 兼容旧版只保存原文件名的队列
+                original, targets = str(meta or name), []
+            items.append((name, full, original, targets if isinstance(targets, list) else []))
+        return items
+
     def update_targets(self, queue_name: str, filename: str, targets: List[dict]) -> None:
         _write_meta(os.path.join(self.directory, queue_name), {"filename": filename, "targets": targets})
 
@@ -221,9 +394,7 @@ class Outbox:
     def count(self) -> int:
         if not os.path.isdir(self.directory):
             return 0
-        return len(
-            [n for n in os.listdir(self.directory) if n.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))]
-        )
+        return len([n for n in os.listdir(self.directory) if n.lower().endswith(MEDIA_SUFFIXES)])
 
 
 def _safe_filename(name: str) -> str:
@@ -259,10 +430,10 @@ def _read_meta(path: str):
 
 
 def flush_outbox(config: ClientConfig, outbox: Outbox, on_result: Optional[Callable[[UploadResult, str], None]] = None) -> int:
-    """只补发每张图尚未成功的接收端，返回完全送达的图片数。"""
+    """只补发每个文件尚未成功的接收端，返回完全送达的文件数。"""
     sent = 0
-    for queue_name, data, original, targets in outbox.pending():
-        result = upload_targets(targets or config.targets, original, data)
+    for queue_name, path, original, targets in outbox.pending_files():
+        result = upload_targets_file(targets or config.targets, original, path)
         if result.ok:
             outbox.remove(queue_name)
             sent += 1

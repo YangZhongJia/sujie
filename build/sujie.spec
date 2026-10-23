@@ -13,12 +13,19 @@ ROOT = Path(SPECPATH).parent
 SRC = ROOT / "src"
 ICON = ROOT / "assets" / "sujie.ico"
 VERSION = ROOT / "assets" / "version_info.txt"
+FFMPEG = ROOT / "assets" / "bin" / "ffmpeg.exe"
+
+# 录屏依赖的 ffmpeg 放在 _internal/ffmpeg/ffmpeg.exe（recorder.ffmpeg_path 会去找）
+datas = []
+binaries = []
+if FFMPEG.exists():
+    datas.append((str(FFMPEG), "ffmpeg"))
 
 a = Analysis(
     [str(SRC / "sujie_app.py")],
     pathex=[str(SRC)],
-    binaries=[],
-    datas=[],
+    binaries=binaries,
+    datas=datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

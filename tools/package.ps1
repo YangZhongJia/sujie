@@ -64,6 +64,20 @@ $version = (& $python -c "import sys; sys.path.insert(0, 'src'); from sujie impo
 Write-Host "Python : $python"
 Write-Host "版本   : $version"
 
+# ffmpeg.exe 有 87 MB，不进 git；本机没有就从 imageio-ffmpeg 里取一份放好
+$ffmpeg = Join-Path $root 'assets\bin\ffmpeg.exe'
+if (-not (Test-Path $ffmpeg)) {
+    Write-Step '准备 ffmpeg'
+    New-Item -ItemType Directory -Force -Path (Split-Path $ffmpeg) | Out-Null
+    $src = (& $python -c "import imageio_ffmpeg, sys; sys.stdout.write(imageio_ffmpeg.get_ffmpeg_exe())")
+    if (-not $src -or -not (Test-Path $src.Trim())) {
+        throw '缺少 assets\bin\ffmpeg.exe：请先 pip install imageio-ffmpeg，或手动把 ffmpeg.exe 放到 assets\bin\'
+    }
+    Copy-Item $src.Trim() $ffmpeg -Force
+    $null = & icacls $ffmpeg /setintegritylevel "M" 2>&1
+    Write-Host "ffmpeg : $ffmpeg"
+}
+
 # ---------------------------------------------------------------- 1. 构建
 if (-not $SkipBuild) {
     Write-Step '1/4 清理旧产物'
@@ -96,7 +110,7 @@ if (-not $SkipInstaller) {
     Write-Step '4/4 编译安装包'
     $iscc = Find-Iscc
     if (-not (Test-Path 'docs\使用说明.md')) { throw '缺少 docs\使用说明.md，安装包需要它作为说明文档' }
-    & $iscc 'installer\sujie.iss'
+    & $iscc "/DAppVersion=$version" 'installer\sujie.iss'
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败（exit $LASTEXITCODE）" }
 
     $setup = Join-Path $root "dist\installer\速截-Setup-$version.exe"

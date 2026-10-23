@@ -5,7 +5,11 @@
 
 #define AppName "速截"
 #define AppShortName "速截"
-#define AppVersion "1.0.0"
+; 版本号由 tools\package.ps1 用 /DAppVersion=<src/sujie/__init__.py> 传入，
+; 单独手工编译时才回落到这里的默认值。
+#ifndef AppVersion
+  #define AppVersion "1.1.0"
+#endif
 #define AppPublisher "速截"
 #define AppExe "速截.exe"
 

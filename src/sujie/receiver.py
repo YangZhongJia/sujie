@@ -27,6 +27,7 @@ from . import APP_NAME, __version__, bootstrap, discovery, launcher, paths, win3
 from .config import AppModeConfig, MODE_CHOICES, MODE_LABELS
 
 RECEIVER_VALUE_NAME = "速截"
+UPLOAD_CHUNK = 1024 * 1024
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._\-一-鿿 ]")
 
@@ -69,6 +70,7 @@ class ReceiverState:
             "ip": ips[0] if ips else "127.0.0.1",
             "http_port": self.config.port,
             "save_dir": self.save_dir(),
+            "max_upload_mb": int(getattr(self.config, "max_upload_mb", 0) or 0),
             "count": self.count,
         }
 
@@ -128,13 +130,20 @@ class ReceiverHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "message": "空请求体"}, 400)
             return
 
-        data = self.rfile.read(length)
+        max_mb = int(getattr(self.state.config, "max_upload_mb", 0) or 0)
+        if max_mb and length > max_mb * 1024 * 1024:
+            self._send_json(
+                {"ok": False, "message": f"文件太大（上限 {max_mb} MB），可在接收端设置里调整"},
+                413,
+            )
+            return
+
         raw_name = unquote(self.headers.get("X-File-Name", "") or "")
         name = sanitize_filename(raw_name, "shot.png")
 
-        # 扩展名统一：客户端可能传 .png/.jpg
+        # 边收边写盘：录屏动辄上百 MB，整段读进内存会直接把进程撑爆
         try:
-            saved = self._save(name, data)
+            saved, written = self._save_stream(name, length)
         except OSError as exc:
             self._send_json({"ok": False, "message": f"写入失败：{exc}"}, 500)
             return
@@ -150,11 +159,49 @@ class ReceiverHandler(BaseHTTPRequestHandler):
                 "message": "接收成功",
                 "path": saved,
                 "name": os.path.basename(saved),
-                "size": len(data),
+                "size": written,
             }
         )
 
     # ---------------------------------------------------------------- 辅助
+    def _save_stream(self, name: str, length: int) -> tuple:
+        """按块把请求体写进 ``.part``，收全了再改名，避免半截文件被当成成品。"""
+        directory = self.state.target_dir()
+        os.makedirs(directory, exist_ok=True)
+        stem, ext = os.path.splitext(name)
+        ext = ext or ".png"
+        prefix = self.state.config.filename_prefix or "shot"
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        candidate = os.path.join(directory, f"{prefix}-{stamp}{ext}")
+        index = 1
+        while os.path.exists(candidate):
+            candidate = os.path.join(directory, f"{prefix}-{stamp}-{index}{ext}")
+            index += 1
+        part = candidate + ".part"
+        remaining = length
+        written = 0
+        try:
+            with open(part, "wb") as fh:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(UPLOAD_CHUNK, remaining))
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    written += len(chunk)
+                    remaining -= len(chunk)
+            if written != length:
+                raise OSError(f"接收不完整（{written}/{length} 字节）")
+            os.replace(part, candidate)
+        except OSError:
+            for path in (part, candidate):
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except OSError:
+                    pass
+            raise
+        return candidate, written
+
     def _save(self, name: str, data: bytes) -> str:
         directory = self.state.target_dir()
         os.makedirs(directory, exist_ok=True)

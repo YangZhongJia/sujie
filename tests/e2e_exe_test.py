@@ -155,6 +155,58 @@ def drag(x1: int, y1: int, x2: int, y2: int) -> None:
     time.sleep(0.3)
 
 
+def long_press_swipe(x: int, y: int, dx: int, dy: int, hold: float = 0.85) -> None:
+    """按住小球不放（触发长按）、再朝某个方向滑出去、松手。"""
+    user32.SetCursorPos(int(x), int(y))
+    time.sleep(0.2)
+    user32.mouse_event(0x0002, 0, 0, 0, 0)  # LEFTDOWN
+    time.sleep(hold)                        # 超过长按阈值（默认 500ms）
+    steps = 10
+    for i in range(1, steps + 1):
+        user32.SetCursorPos(int(x + dx * i / steps), int(y + dy * i / steps))
+        time.sleep(0.02)
+    time.sleep(0.15)
+    user32.mouse_event(0x0004, 0, 0, 0, 0)  # LEFTUP
+    time.sleep(0.5)
+
+
+CLIENT_LOG = Path(os.environ.get("LOCALAPPDATA", "")) / "速截" / "logs" / "client.log"
+
+
+def log_size() -> int:
+    try:
+        return CLIENT_LOG.stat().st_size
+    except OSError:
+        return 0
+
+
+def wait_log(marker: str, offset: int = 0, timeout: float = 8.0) -> bool:
+    """等客户端日志在 offset 之后出现某段文字，用于判断上一步交互真的结束了。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with open(CLIENT_LOG, "rb") as handle:
+                handle.seek(offset)
+                text = handle.read().decode("utf-8", "replace")
+        except OSError:
+            text = ""
+        if marker in text:
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def _tasklist() -> str:
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq ffmpeg.exe", "/FO", "CSV", "/NH"],
+            capture_output=True, timeout=15,
+        )
+        return (out.stdout or b"").decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
 # ----------------------------------------------------------------- HTTP
 def ping() -> dict | None:
     try:
@@ -359,7 +411,72 @@ def main() -> int:
             check(False, "收到的是合法图片", repr(exc))
         check(got.stat().st_size > 5000, "图片大小合理", f"{got.stat().st_size} 字节")
 
-    print("\n[7] 工作模式切换")
+    print("\n[7] 长按扇形菜单：上滑截图 / 左滑录屏")
+    ball = window_of(client_pid)
+    if ball is None:
+        check(False, "截图端仍在运行（扇形测试）")
+    else:
+        bx = (ball[1][0] + ball[1][2]) // 2
+        by = (ball[1][1] + ball[1][3]) // 2
+
+        # 上滑 = 截图：应该和单击一样弹出编辑器
+        png_before = len(list(SAVE_DIR.rglob("*.png")))
+        long_press_swipe(bx, by, 0, -120)
+        editor = None
+        deadline = time.time() + 12
+        while time.time() < deadline:
+            editor = editor_window(client_pid)
+            if editor is not None:
+                break
+            time.sleep(0.3)
+        check(editor is not None, "长按上滑触发了截图（打开编辑器）")
+        if editor is not None:
+            offset = log_size()
+            press_dialog_key(editor, 0x1B)  # ESC = 取消
+            wait_log("编辑器里取消了", offset, timeout=6.0)
+            time.sleep(0.4)
+        check(len(list(SAVE_DIR.rglob("*.png"))) == png_before, "取消后没有多出图片")
+
+        # 左滑 = 录屏：启动 ffmpeg；上一步编辑器刚关，客户端可能还在收尾，失败就重试
+        mp4_before = len(list(SAVE_DIR.rglob("*.mp4")))
+        started = False
+        for _attempt in range(3):
+            long_press_swipe(bx, by, -120, 0)
+            deadline = time.time() + 6
+            while time.time() < deadline:
+                if "ffmpeg" in _tasklist():
+                    started = True
+                    break
+                time.sleep(0.4)
+            if started:
+                break
+            extra = editor_window(client_pid)   # 万一把长按判成了点击，先关掉再重试
+            if extra is not None:
+                press_dialog_key(extra, 0x1B)
+            time.sleep(0.8)
+        check(started, "长按左滑启动了 ffmpeg 录制")
+        if started:
+            time.sleep(2.0)
+            click(bx, by)               # 录制中单击 = 停止并发送
+            got_mp4 = None
+            deadline = time.time() + 40
+            while time.time() < deadline:
+                files = list(SAVE_DIR.rglob("*.mp4"))
+                if len(files) > mp4_before:
+                    got_mp4 = max(files, key=lambda p: p.stat().st_mtime)
+                    break
+                time.sleep(1.0)
+            if check(got_mp4 is not None, "录屏文件已上传到接收端", str(got_mp4)):
+                check(got_mp4.stat().st_size > 5000, "视频大小合理", f"{got_mp4.stat().st_size} 字节")
+                with open(got_mp4, "rb") as handle:
+                    handle.seek(4)
+                    check(handle.read(4) == b"ftyp", "收到的是合法 mp4")
+            deadline = time.time() + 20
+            while time.time() < deadline and "ffmpeg" in _tasklist():
+                time.sleep(0.5)
+            check("ffmpeg" not in _tasklist(), "停止后 ffmpeg 已退出")
+
+    print("\n[8] 工作模式切换")
     (APPDATA_DIR / "mode.json").write_text(json.dumps({"mode": "screenshot"}), encoding="utf-8")
     deadline = time.time() + 8
     while time.time() < deadline and ping() is not None:
@@ -378,7 +495,7 @@ def main() -> int:
     check(receiver_back is not None and window_of(client_pid) is None,
           "切到只收图后启动接收端并停止截图端")
 
-    print("\n[8] 清理")
+    print("\n[9] 清理")
     kill_all()
     check(len(pids()) == 0, "进程已全部退出")
 

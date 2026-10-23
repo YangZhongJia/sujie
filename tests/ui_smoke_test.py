@@ -113,6 +113,38 @@ def main() -> int:  # noqa: C901
     ball.mouseReleaseEvent(mouse(QEvent.MouseButtonRelease, 10, 10, 302, 201))
     check(len(clicks) == 2, "轻微抖动仍算点击", f"clicked {len(clicks)} 次")
 
+    print("\n[1c] 长按 → 扇形菜单")
+    from PySide6.QtTest import QTest
+
+    radials: list[int] = []
+    moves: list[int] = []
+    commits: list[int] = []
+    ball.radialRequested.connect(lambda _p: radials.append(1))
+    ball.radialMoved.connect(lambda _p: moves.append(1))
+    ball.radialCommitted.connect(lambda _p: commits.append(1))
+
+    before_y = ball.y()
+
+    ball.mousePressEvent(mouse(QEvent.MouseButtonPress, 10, 10, 300, 200))
+    QTest.qWait(650)                                  # 超过 500ms 长按阈值
+    check(len(radials) == 1, "长按弹出扇形菜单", f"radialRequested {len(radials)} 次")
+    check(len(clicks) == 2, "长按不会额外触发截图", f"clicked {len(clicks)} 次")
+
+    ball.mouseMoveEvent(mouse(QEvent.MouseMove, 10, 10, 300, 80))
+    check(len(moves) == 1, "菜单展开时移动只更新高亮", f"radialMoved {len(moves)} 次")
+    check(ball.y() == before_y, "菜单展开时小球不再跟着移动", f"y {before_y} → {ball.y()}")
+
+    ball.mouseReleaseEvent(mouse(QEvent.MouseButtonRelease, 10, 10, 300, 80))
+    check(len(commits) == 1, "松手提交扇区", f"radialCommitted {len(commits)} 次")
+    check(len(clicks) == 2, "长按松手不算点击", f"clicked {len(clicks)} 次")
+
+    ball._config.radial_enabled = False
+    ball.mousePressEvent(mouse(QEvent.MouseButtonPress, 10, 10, 300, 200))
+    QTest.qWait(650)
+    check(len(radials) == 1, "关掉长按后不再弹菜单", f"radialRequested {len(radials)} 次")
+    ball.mouseReleaseEvent(mouse(QEvent.MouseButtonRelease, 10, 10, 300, 200))
+    ball._config.radial_enabled = True
+
     print("\n[2] 设置对话框")
     config_path = Path(_TMP) / "速截" / "client.json"
     cfg2 = ClientConfig()
@@ -121,8 +153,8 @@ def main() -> int:  # noqa: C901
 
     tabs = dialog.findChild(QTabWidget)
     check(
-        tabs is not None and tabs.count() == 3,
-        "三个设置页",
+        tabs is not None and tabs.count() == 4,
+        "四个设置页",
         " / ".join(tabs.tabText(i) for i in range(tabs.count())) if tabs else "没找到 QTabWidget",
     )
 
@@ -193,7 +225,14 @@ def main() -> int:  # noqa: C901
         role_path = Path(_TMP) / "速截" / "mode.json"
         check(json.loads(role_path.read_text(encoding="utf-8")).get("mode") == "screenshot",
               "工作模式已记住")
-        check(len(data) == 12, "精简配置字段完整", f"{len(data)} 个键")
+        required = {
+            "targets", "capture_mode", "show_ball",
+            "record_mode", "record_fps", "record_send_after",
+            "radial_enabled", "radial_radius", "pin_max_count", "history_limit",
+        }
+        missing = sorted(required - set(data))
+        check(not missing, "配置字段齐全",
+              ("缺少 " + ", ".join(missing)) if missing else f"{len(data)} 个键")
 
     dialog.deleteLater()
     app.processEvents()
