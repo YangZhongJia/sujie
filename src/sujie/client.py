@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import sys
 import time
@@ -21,8 +22,8 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QAction, QCursor, QImage, QPixmap
-from PySide6.QtWidgets import QApplication, QDialog, QMenu, QMessageBox, QSystemTrayIcon
+from PySide6.QtGui import QAction, QCursor, QGuiApplication, QImage, QPixmap
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import (
     APP_NAME,
@@ -47,10 +48,12 @@ CLIENT_VALUE_NAME = "速截"
 CAPTURE_DEBOUNCE = 0.45  # 秒：两次截图请求的最小间隔，挡住连点/重复点击事件
 RECORD_TICK_MS = 500     # 录制计时刷新间隔
 HOTKEY_ID = 0xA17
+HOTKEY_ID_SHOT = 0xA18
 WM_HOTKEY = 0x0312
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
 MOD_NOREPEAT = 0x4000
+AFTER_CAPTURE_ACTIONS = ("editor", "send", "copy", "pin")
 
 
 def capture_error_text(exc: Exception) -> str:
@@ -131,11 +134,12 @@ class _UploadTask(QRunnable):
 
 
 class _FileUploadTask(QRunnable):
-    """上传磁盘上的大文件（录屏）：边读边发，不占内存。"""
+    """上传磁盘上的大文件（录屏/任意文件）：边读边发，不占内存。"""
 
     def __init__(self, targets: list[dict], filename: str, path: str,
                  signals: _FileUploadSignals, outbox: uploader.Outbox, retry_enabled: bool,
-                 history: Optional["history_mod.History"] = None, labels: Optional[list[str]] = None):
+                 history: Optional["history_mod.History"] = None, labels: Optional[list[str]] = None,
+                 kind: str = "video", keep_name: bool = False):
         super().__init__()
         self._targets = targets
         self._filename = filename
@@ -145,10 +149,14 @@ class _FileUploadTask(QRunnable):
         self._retry_enabled = retry_enabled
         self._history = history
         self._labels = labels or []
+        self._kind = kind
+        self._keep_name = keep_name
 
     def run(self) -> None:  # noqa: D102
         try:
-            result = uploader.upload_targets_file(self._targets, self._filename, self._path)
+            result = uploader.upload_targets_file(
+                self._targets, self._filename, self._path, keep_name=self._keep_name
+            )
             queued = bool(result.failed_targets) and self._retry_enabled
             if queued:
                 try:
@@ -157,9 +165,14 @@ class _FileUploadTask(QRunnable):
                     queued = False
             if self._history is not None:
                 try:
-                    self._history.add_video(
-                        self._path, self._labels, result.ok, result.remote_path, result.message
-                    )
+                    if self._kind == "video":
+                        self._history.add_video(
+                            self._path, self._labels, result.ok, result.remote_path, result.message
+                        )
+                    else:
+                        self._history.add_file(
+                            self._path, self._labels, result.ok, result.remote_path, result.message
+                        )
                 except Exception as exc:
                     bootstrap.log(f"写历史记录失败：{exc!r}")
             self._signals.done.emit(
@@ -175,11 +188,15 @@ class _FileUploadTask(QRunnable):
 
 
 class _HotkeyFilter(QAbstractNativeEventFilter):
-    """接 Ctrl+Alt+R：录制时没有窗口有焦点，只能靠全局热键。"""
+    """全局热键分发：录制时没有窗口有焦点，只能靠全局热键。
 
-    def __init__(self, callback):
+    一个过滤器管多个热键：``{hotkey_id: callback}``，WM_HOTKEY 的 wParam
+    就是注册时的 id，查表分发。
+    """
+
+    def __init__(self, handlers: dict):
         super().__init__()
-        self._callback = callback
+        self._handlers = dict(handlers)
 
     def nativeEventFilter(self, event_type, message):  # noqa: N802
         try:
@@ -188,8 +205,10 @@ class _HotkeyFilter(QAbstractNativeEventFilter):
                 from ctypes import wintypes
 
                 msg = ctypes.cast(int(message), ctypes.POINTER(wintypes.MSG)).contents
-                if msg.message == WM_HOTKEY and int(msg.wParam) == HOTKEY_ID:
-                    self._callback()
+                if msg.message == WM_HOTKEY:
+                    handler = self._handlers.get(int(msg.wParam))
+                    if handler is not None:
+                        handler()
         except Exception:
             pass
         return False, 0
@@ -216,6 +235,8 @@ class ClientApp(QObject):
         self.radial = radial.RadialMenu(accent=self.config.ball_color)
         self._file_signals = _FileUploadSignals(self)
         self._file_signals.done.connect(self._on_video_upload_done)
+        self._file_send_signals = _FileUploadSignals(self)
+        self._file_send_signals.done.connect(self._on_file_upload_done)
 
         self.ball = FloatingBall(self.config)
         self.ball.clicked.connect(lambda: self.capture_and_send("悬浮球点击"))
@@ -227,7 +248,7 @@ class ClientApp(QObject):
         self._record_timer = QTimer(self)
         self._record_timer.timeout.connect(self._tick_record)
         self._hotkey_filter: Optional[_HotkeyFilter] = None
-        self._hotkey_ok = False
+        self._hotkey_ids: list[int] = []
 
         self.tray = QSystemTrayIcon(make_app_icon(self.config.ball_color), app)
         self.tray.setToolTip(f"{APP_NAME} v{__version__}\n单击悬浮球，编辑后发送")
@@ -264,7 +285,7 @@ class ClientApp(QObject):
     def _build_tray_menu(self) -> None:
         menu = QMenu()
 
-        action_shot = QAction("截图并编辑", menu)
+        action_shot = QAction("截图", menu)
         action_shot.triggered.connect(lambda: self.capture_and_send("托盘菜单"))
         menu.addAction(action_shot)
 
@@ -288,6 +309,10 @@ class ClientApp(QObject):
         action_toggle = QAction("显示/隐藏悬浮球", menu)
         action_toggle.triggered.connect(self._toggle_ball)
         menu.addAction(action_toggle)
+
+        action_send_file = QAction("发送文件…", menu)
+        action_send_file.triggered.connect(self._send_files)
+        menu.addAction(action_send_file)
 
         menu.addSeparator()
 
@@ -562,6 +587,49 @@ class ClientApp(QObject):
             )
         self._flush_outbox()
 
+    # -------------------------------------------------------------- 发送文件
+    def _send_files(self) -> None:
+        """把任意本地文件发到接收端，保留原文件名。"""
+        if not self.config.targets:
+            self.tray.showMessage(APP_NAME, "还没有配置接收端。", QSystemTrayIcon.Warning, 4000)
+            self.open_settings()
+            return
+        selected, _filter = QFileDialog.getOpenFileNames(
+            None, "选择要发送的文件", "", "所有文件 (*)",
+        )
+        if not selected:
+            return
+        labels = [f"{t.get('host')}:{t.get('port')}" for t in self.config.targets]
+        targets = [dict(t) for t in self.config.targets]
+        for path in selected:
+            task = _FileUploadTask(
+                targets, os.path.basename(path), path,
+                self._file_send_signals, self.outbox, self.config.retry_enabled,
+                self.history, labels, kind="file", keep_name=True,
+            )
+            self.pool.start(task)
+        self.tray.showMessage(
+            APP_NAME, f"正在发送 {len(selected)} 个文件…", QSystemTrayIcon.Information, 2000,
+        )
+        bootstrap.log(f"发送文件：{len(selected)} 个（来源=菜单）")
+
+    def _on_file_upload_done(self, succeeded: int, total: int, message: str,
+                             filename: str, queued: bool, path: str) -> None:
+        bootstrap.log(f"文件上传结束 成功={succeeded}/{total} 文件={filename} 消息={message}")
+        if succeeded == total:
+            if self.config.notify_on_send:
+                self.tray.showMessage(
+                    APP_NAME, f"文件已发送到 {succeeded} 台电脑：{filename}",
+                    QSystemTrayIcon.Information, 3000,
+                )
+        else:
+            self.tray.showMessage(
+                APP_NAME,
+                f"{message}\n" + ("失败目标已加入待发队列。" if queued else "请检查连接后重试。"),
+                QSystemTrayIcon.Warning, 5000,
+            )
+        self._flush_outbox()
+
     # -------------------------------------------------------------- 贴图
     def pin_capture(self, reason: str = "菜单") -> None:
         if self._busy:
@@ -608,10 +676,12 @@ class ClientApp(QObject):
             self.open_settings()
             return
         labels = [f"{t.get('host')}:{t.get('port')}" for t in self.config.targets]
-        if entry.kind == "video":
+        if entry.kind in ("video", "file"):
             task = _FileUploadTask(
                 [dict(t) for t in self.config.targets], entry.name, path,
-                self._file_signals, self.outbox, self.config.retry_enabled, self.history, labels,
+                self._file_send_signals if entry.kind == "file" else self._file_signals,
+                self.outbox, self.config.retry_enabled, self.history, labels,
+                kind=entry.kind, keep_name=entry.kind == "file",
             )
         else:
             try:
@@ -633,27 +703,38 @@ class ClientApp(QObject):
     def _register_hotkey(self) -> None:
         import ctypes
 
+        hotkeys = {
+            HOTKEY_ID: (MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, ord("R"),
+                        lambda: self.toggle_record("全局热键")),
+            HOTKEY_ID_SHOT: (MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, ord("S"),
+                             lambda: self.capture_and_send("全局热键")),
+        }
         try:
-            self._hotkey_filter = _HotkeyFilter(lambda: self.toggle_record("全局热键"))
+            self._hotkey_filter = _HotkeyFilter({key: cb for key, (_mod, _vk, cb) in hotkeys.items()})
             self.app.installNativeEventFilter(self._hotkey_filter)
-            ok = ctypes.windll.user32.RegisterHotKey(
-                None, HOTKEY_ID, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, ord("R")
-            )
-            self._hotkey_ok = bool(ok)
-            bootstrap.log(f"注册 Ctrl+Alt+R 热键：{'成功' if ok else '失败（可能已被占用）'}")
+            for key, (mods, vk, _cb) in hotkeys.items():
+                try:
+                    ok = ctypes.windll.user32.RegisterHotKey(None, key, mods, vk)
+                except Exception:
+                    ok = False
+                name = "Ctrl+Alt+R" if key == HOTKEY_ID else "Ctrl+Alt+S"
+                if ok:
+                    self._hotkey_ids.append(key)
+                bootstrap.log(f"注册 {name} 热键：{'成功' if ok else '失败（可能已被占用）'}")
         except Exception as exc:
             bootstrap.log(f"注册热键异常：{exc!r}")
 
     def _unregister_hotkey(self) -> None:
-        if not self._hotkey_ok:
+        if not self._hotkey_ids:
             return
         try:
             import ctypes
 
-            ctypes.windll.user32.UnregisterHotKey(None, HOTKEY_ID)
+            for key in self._hotkey_ids:
+                ctypes.windll.user32.UnregisterHotKey(None, key)
         except Exception:
             pass
-        self._hotkey_ok = False
+        self._hotkey_ids = []
 
     # -------------------------------------------------------------- 前台跟踪
     def _track_foreground(self) -> None:
@@ -690,7 +771,11 @@ class ClientApp(QObject):
         if self._busy:
             bootstrap.log("  上一次截图还没结束，本次忽略")
             return
-        if not self.config.targets:
+        after = self.config.after_capture or "editor"
+        if after not in AFTER_CAPTURE_ACTIONS:
+            after = "editor"
+        # copy/pin 只在本机动作，不联网，没有接收端也照样能用
+        if not self.config.targets and after not in ("copy", "pin"):
             bootstrap.log("  还没配置接收端，打开设置引导用户")
             self.tray.showMessage(
                 APP_NAME,
@@ -726,6 +811,39 @@ class ClientApp(QObject):
             return
 
         image, title = shot
+        if after == "copy":
+            self._busy = False
+            self.ball.set_busy(False)
+            QGuiApplication.clipboard().setPixmap(_pil_to_pixmap(image))
+            self.tray.showMessage(APP_NAME, "截图已复制到剪贴板", QSystemTrayIcon.Information, 2000)
+            bootstrap.log(f"截图已复制到剪贴板（来源={reason}）")
+            return
+        if after == "pin":
+            self._busy = False
+            self.ball.set_busy(False)
+            self.pins.create(_pil_to_pixmap(image))
+            bootstrap.log(f"已钉一张图（来源={reason}），当前 {self.pins.count()} 张")
+            return
+        if after == "send":
+            try:
+                filename, data = _encode_pil(image, title)
+            except Exception as exc:
+                self._busy = False
+                self.ball.set_busy(False)
+                bootstrap.log(f"截图编码失败：{exc!r}")
+                self.tray.showMessage(APP_NAME, f"截图编码失败：{exc}", QSystemTrayIcon.Warning, 5000)
+                return
+            labels = [f"{t.get('host')}:{t.get('port')}" for t in self.config.targets]
+            signals = _UploadSignals()
+            signals.done.connect(self._on_upload_done)
+            task = _UploadTask(
+                [dict(target) for target in self.config.targets], filename, data,
+                signals, self.outbox, self.config.retry_enabled,
+                self.history, labels,
+            )
+            self.pool.start(task)
+            return
+
         self.ball.hide()
         self.app.processEvents()
         try:
@@ -746,11 +864,13 @@ class ClientApp(QObject):
             self.ball.show()
             self.app.processEvents()
 
+        labels = [f"{t.get('host')}:{t.get('port')}" for t in self.config.targets]
         signals = _UploadSignals()
         signals.done.connect(self._on_upload_done)
         task = _UploadTask(
             [dict(target) for target in self.config.targets], filename, data,
             signals, self.outbox, self.config.retry_enabled,
+            self.history, labels,
         )
         self.pool.start(task)
 
@@ -913,6 +1033,16 @@ class ClientApp(QObject):
         except Exception:
             pass
         self.app.quit()
+
+
+def _encode_pil(image, title: str = "") -> tuple[str, bytes]:
+    """PIL 截图直接编 PNG（「直接发送」路径用，不经过编辑器和 QImage）。"""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    suffix = _safe_title(title)
+    filename = f"shot-{stamp}{suffix}.png"
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return filename, buffer.getvalue()
 
 
 def _pil_to_qimage(image) -> QImage:

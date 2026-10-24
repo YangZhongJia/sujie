@@ -2,21 +2,41 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QImage, QKeySequence, QPainter, QPen, QPolygonF, QShortcut
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QGuiApplication,
+    QImage,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPolygonF,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from . import paths
+
 TOOLS = (("pen", "画笔"), ("arrow", "箭头"), ("rect", "矩形"),
          ("ellipse", "圆形"), ("text", "文字"), ("mosaic", "马赛克"))
+
+# QDialog.Accepted/Rejected 之外的自定义结果码，client 侧据此区分「不发送」的收尾
+RESULT_COPY = 2
+RESULT_SAVE = 3
 
 
 class _Canvas(QWidget):
@@ -225,6 +245,12 @@ class ScreenshotEditor(QDialog):
         layout.addWidget(self.canvas, 1)
         footer = QHBoxLayout()
         footer.addStretch(1)
+        copy = QPushButton("复制")
+        copy.setToolTip("复制到剪贴板并关闭（Ctrl+C）")
+        copy.clicked.connect(self._copy_and_close)
+        save = QPushButton("保存")
+        save.setToolTip("保存到本机并关闭（Ctrl+S）")
+        save.clicked.connect(self._save_and_close)
         cancel = QPushButton("取消")
         cancel.clicked.connect(self.reject)
         send = QPushButton("发送")
@@ -232,15 +258,37 @@ class ScreenshotEditor(QDialog):
         send.setDefault(True)
         send.setAutoDefault(True)
         send.clicked.connect(self.accept)
+        footer.addWidget(copy)
+        footer.addWidget(save)
         footer.addWidget(cancel)
         footer.addWidget(send)
         layout.addLayout(footer)
         send_shortcut = QShortcut(QKeySequence("Ctrl+Enter"), self)
         send_shortcut.activated.connect(self.accept)
+        copy_shortcut = QShortcut(QKeySequence(QKeySequence.Copy), self)
+        copy_shortcut.activated.connect(self._copy_and_close)
+        save_shortcut = QShortcut(QKeySequence(QKeySequence.Save), self)
+        save_shortcut.activated.connect(self._save_and_close)
 
     @property
     def image(self) -> QImage:
         return self.canvas.image
+
+    def _copy_and_close(self) -> None:
+        QGuiApplication.clipboard().setImage(self.image)
+        self.done(RESULT_COPY)
+
+    def _save_and_close(self) -> None:
+        directory = paths.local_data_dir() / "saved"
+        directory.mkdir(parents=True, exist_ok=True)
+        default = str(directory / f"shot-{datetime.now():%Y%m%d-%H%M%S}.png")
+        path, _ = QFileDialog.getSaveFileName(self, "保存截图", default, "PNG 图片 (*.png)")
+        if not path:
+            return
+        if not self.image.save(path, "PNG"):
+            QMessageBox.warning(self, "保存失败", f"无法写入文件：{path}")
+            return
+        self.done(RESULT_SAVE)
 
     def _select_tool(self, tool: str) -> None:
         self.canvas.tool = tool

@@ -136,12 +136,14 @@ def http_upload_file(
     size: Optional[int] = None,
     timeout: float = 120.0,
     progress: Optional[Callable[[int, int], None]] = None,
+    keep_name: bool = False,
 ) -> UploadResult:
     """按 1MB 分块把磁盘文件 POST 给接收端。
 
     录屏动辄几十上百 MB，不能像截图那样整段放进内存（``http_upload`` 就是那样），
     所以这里直接用 ``http.client`` 自己拼请求体，读一块发一块。
     注意：``http.client`` 天生不走系统代理，正好符合局域网直连的要求。
+    ``keep_name`` 给「发送文件」用：请接收端保留原文件名，而不是改写成时间戳名。
     """
     try:
         total = int(size if size is not None else os.path.getsize(path))
@@ -157,6 +159,8 @@ def http_upload_file(
         connection.putheader("X-File-Name", urllib.parse.quote(filename))
         connection.putheader("X-Size", str(total))
         connection.putheader("X-Stream", "1")
+        if keep_name:
+            connection.putheader("X-Keep-Name", "1")
         if token:
             connection.putheader("X-Token", token)
         connection.putheader("Content-Length", str(total))
@@ -215,8 +219,9 @@ def upload_targets_file(
     path: str,
     size: Optional[int] = None,
     progress: Optional[Callable[[int, int], None]] = None,
+    keep_name: bool = False,
 ) -> UploadResult:
-    """把磁盘上的文件（图片或视频）发给所有接收端。"""
+    """把磁盘上的文件（录屏或任意文件）发给所有接收端。"""
     if not targets:
         return UploadResult(False, "尚未配置接收端地址")
     failed = []
@@ -230,6 +235,7 @@ def upload_targets_file(
             path,
             size=size,
             progress=progress,
+            keep_name=keep_name,
         )
         if result.ok:
             sent += 1

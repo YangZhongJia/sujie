@@ -17,6 +17,7 @@ _SANDBOX_APPDATA = tempfile.mkdtemp(prefix="sb_it_appdata_")
 os.environ["APPDATA"] = _SANDBOX_APPDATA
 
 from PySide6.QtCore import QPoint, Qt, QTimer  # noqa: E402
+from PySide6.QtGui import QGuiApplication  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
@@ -115,6 +116,57 @@ def main():
     time.sleep(1.0)
     after = len([f for f in os.listdir(tmpdir) if f.lower().endswith(".png")])
     check("拖动小球不会误触发截图", before == after, f"{before} -> {after}")
+
+    def editor_open() -> bool:
+        # accept() 只隐藏对话框不销毁对象，必须看可见性
+        return any(w.isVisible() and w.windowTitle() == "编辑截图" for w in app.topLevelWidgets())
+
+    def wait_idle(timeout: float = 10.0) -> None:
+        deadline = time.time() + timeout
+        while time.time() < deadline and controller._busy:
+            app.processEvents()
+            time.sleep(0.1)
+
+    def png_count() -> int:
+        return len([f for f in os.listdir(tmpdir) if f.lower().endswith(".png")])
+
+    # 截图后动作 = 直接发送：不弹编辑器，直接上传
+    wait_idle()
+    time.sleep(0.6)  # 过截图防抖窗口
+    controller.config.after_capture = "send"
+    before_direct = png_count()
+    QTest.mouseClick(ball, Qt.LeftButton, pos=QPoint(ball.width() // 2, ball.height() // 2))
+    app.processEvents()
+    landed_direct = None
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        if png_count() > before_direct:
+            landed_direct = True
+            break
+        app.processEvents()
+        time.sleep(0.1)
+    check("直接发送模式截图已落盘", landed_direct is not None,
+          f"{before_direct} -> {png_count()}")
+    check("直接发送模式没弹编辑器", not editor_open())
+
+    # 截图后动作 = 复制到剪贴板：本机动作，不上传
+    wait_idle()
+    time.sleep(0.6)
+    controller.config.after_capture = "copy"
+    QGuiApplication.clipboard().clear()
+    before_copy = png_count()
+    QTest.mouseClick(ball, Qt.LeftButton, pos=QPoint(ball.width() // 2, ball.height() // 2))
+    app.processEvents()
+    deadline = time.time() + 5
+    clip = QGuiApplication.clipboard().image()
+    while time.time() < deadline and (clip.isNull() or clip.width() <= 100):
+        app.processEvents()
+        time.sleep(0.1)
+        clip = QGuiApplication.clipboard().image()
+    check("复制模式剪贴板有图", not clip.isNull() and clip.width() > 100,
+          f"{clip.width()}x{clip.height()}")
+    check("复制模式不产生上传", png_count() == before_copy, f"{before_copy} -> {png_count()}")
+    check("复制模式没弹编辑器", not editor_open())
 
     controller.quit()
     httpd.shutdown()

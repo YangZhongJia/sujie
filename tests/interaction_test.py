@@ -142,6 +142,14 @@ def main() -> int:
     check(entries[0].kind == "video", "视频条目排最前", entries[0].kind)
     check(entries[0].kind_label() == "录屏", "视频条目有中文标签", entries[0].kind_label())
 
+    src_file = Path(_TMP) / "报价单.docx"
+    src_file.write_bytes(b"PK\x03\x04" + b"\x00" * 32)
+    store.add_file(src_file, ["192.168.1.5"], True, "", "接收成功")
+    entries = store.entries()
+    check(entries[0].kind == "file", "文件条目排最前", entries[0].kind)
+    check(entries[0].kind_label() == "文件", "文件条目有中文标签", entries[0].kind_label())
+    check(entries[0].local_path == str(src_file), "文件条目引用原路径", entries[0].local_path)
+
     dialog = history_mod.HistoryDialog(store)
     check(len(dialog.current_entries()) == store.count(), "对话框能列出全部记录",
           str(len(dialog.current_entries())))
@@ -152,11 +160,41 @@ def main() -> int:
     store.clear()
     check(store.count() == 0, "清空后没有条目")
     check(len(list(history_mod.sent_dir().iterdir())) == 0, "清空时删掉了本地副本", f"清理前 {sent_before} 个")
+    check(video.exists(), "清空历史不删用户录像原件", str(video))
+    check(src_file.exists(), "清空历史不删用户文件原件", str(src_file))
 
     print("\n[5] 历史文件可重复读取")
     store.add_image("again.png", payload, [], True, "", "")
     reloaded = history_mod.History(limit=10)
     check(reloaded.count() == store.count(), "重新打开能读回记录", f"{reloaded.count()} 条")
+
+    print("\n[6] 全局热键分发")
+    import ctypes
+    from ctypes import wintypes
+
+    from sujie.client import HOTKEY_ID, HOTKEY_ID_SHOT, WM_HOTKEY, _HotkeyFilter
+
+    calls: list[str] = []
+    flt = _HotkeyFilter({
+        HOTKEY_ID: lambda: calls.append("record"),
+        HOTKEY_ID_SHOT: lambda: calls.append("shot"),
+    })
+
+    def deliver(message_id: int, wparam: int):
+        msg = wintypes.MSG()
+        msg.message = message_id
+        msg.wParam = wparam
+        address = ctypes.cast(ctypes.pointer(msg), ctypes.c_void_p).value
+        return flt.nativeEventFilter(b"windows_generic_MSG", address)
+
+    check(deliver(WM_HOTKEY, HOTKEY_ID_SHOT) == (False, 0), "过滤器不吞消息")
+    check(calls == ["shot"], "截图热键 id 分发到截图回调", str(calls))
+    deliver(WM_HOTKEY, HOTKEY_ID)
+    check(calls == ["shot", "record"], "录屏热键 id 分发到录屏回调", str(calls))
+    deliver(0x0010, HOTKEY_ID)
+    check(calls == ["shot", "record"], "非热键消息不触发回调", str(calls))
+    deliver(WM_HOTKEY, 0x9999)
+    check(calls == ["shot", "record"], "未注册的热键 id 不触发回调", str(calls))
 
     print(f"\n结果：{PASSED} 通过 / {FAILED} 失败")
     return 1 if FAILED else 0

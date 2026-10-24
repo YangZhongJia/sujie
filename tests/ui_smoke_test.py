@@ -173,6 +173,14 @@ def main() -> int:  # noqa: C901
 
     modes = [dialog.mode_combo.itemData(i) for i in range(dialog.mode_combo.count())]
     check(set(modes) == {"window", "monitor", "screen", "region"}, "四种截图方式都在下拉里", str(modes))
+    afters = [dialog.after_capture_combo.itemData(i) for i in range(dialog.after_capture_combo.count())]
+    check(set(afters) == {"editor", "send", "copy", "pin"}, "四种截图后动作都在下拉里", str(afters))
+    check(dialog.after_capture_combo.currentData() == "editor", "默认动作是打开编辑器",
+          str(dialog.after_capture_combo.currentData()))
+    dialog.after_capture_combo.setCurrentIndex(dialog.after_capture_combo.findData("send"))
+    check(dialog._collect().after_capture == "send", "切换后收集到直接发送",
+          str(dialog._collect().after_capture))
+    dialog.after_capture_combo.setCurrentIndex(dialog.after_capture_combo.findData("editor"))
     roles = [dialog.role_combo.itemData(i) for i in range(dialog.role_combo.count())]
     check(set(roles) == {"screenshot", "receiver", "both"}, "三个工作模式都可选择", str(roles))
 
@@ -243,7 +251,7 @@ def main() -> int:  # noqa: C901
         check(json.loads(role_path.read_text(encoding="utf-8")).get("mode") == "screenshot",
               "工作模式已记住")
         required = {
-            "targets", "capture_mode", "show_ball",
+            "targets", "capture_mode", "after_capture", "show_ball",
             "record_mode", "record_fps", "record_send_after",
             "radial_enabled", "radial_radius", "pin_max_count", "history_limit",
         }

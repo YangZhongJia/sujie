@@ -49,6 +49,12 @@ RECORD_MODE_LABELS = {
 }
 RECORD_AUDIO_CHOICES = ("none", "mic")
 RECORD_AUDIO_LABELS = {"none": "不录声音", "mic": "麦克风"}
+AFTER_CAPTURE_LABELS = {
+    "editor": "打开编辑器（默认）",
+    "send": "直接发送",
+    "copy": "复制到剪贴板",
+    "pin": "贴在屏幕上",
+}
 
 
 class _ScanThread(QThread):
@@ -204,12 +210,21 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(2, 2, 2, 2)
         form = QFormLayout()
-        self._section_header(layout, "截图", "选择单击悬浮球后的截图范围。")
+        self._section_header(layout, "截图", "选择截图范围，以及截图后要做什么。")
 
         self.mode_combo = QComboBox()
         for key in CAPTURE_MODES:
             self.mode_combo.addItem(CAPTURE_MODE_LABELS.get(key, key), key)
         form.addRow("单击小球时截图", self.mode_combo)
+
+        self.after_capture_combo = QComboBox()
+        for key, label in AFTER_CAPTURE_LABELS.items():
+            self.after_capture_combo.addItem(label, key)
+        form.addRow("截图后动作", self.after_capture_combo)
+
+        hint = QLabel("快捷键：Ctrl+Alt+S 截图，Ctrl+Alt+R 录屏。")
+        hint.setProperty("role", "hint")
+        form.addRow("", hint)
 
         layout.addLayout(form)
         layout.addStretch(1)
@@ -349,6 +364,8 @@ class SettingsDialog(QDialog):
         index = self.mode_combo.findData(c.capture_mode)
         if index >= 0:
             self.mode_combo.setCurrentIndex(index)
+        index = self.after_capture_combo.findData(c.after_capture or "editor")
+        self.after_capture_combo.setCurrentIndex(max(index, 0))
         self.autostart_check.setChecked(bool(c.auto_start))
         self.retry_check.setChecked(bool(c.retry_enabled))
         self.notify_check.setChecked(bool(c.notify_on_send))
@@ -456,6 +473,7 @@ class SettingsDialog(QDialog):
         c = self.config
         c.targets = [dict(target) for target in self._targets]
         c.capture_mode = self.mode_combo.currentData()
+        c.after_capture = self.after_capture_combo.currentData() or "editor"
         c.auto_start = self.autostart_check.isChecked()
         c.retry_enabled = self.retry_check.isChecked()
         c.notify_on_send = self.notify_check.isChecked()

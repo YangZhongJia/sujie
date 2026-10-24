@@ -29,3 +29,6 @@ Desktop.ini
 
 # 87 MB 的 ffmpeg 由 tools\package.ps1 自动从 imageio-ffmpeg 复制，不进仓库
 /assets/bin/
+
+# ZCode session artifacts
+/.zcode/

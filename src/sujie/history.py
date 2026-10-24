@@ -35,7 +35,7 @@ from . import APP_NAME, bootstrap, paths, win32util
 
 HISTORY_NAME = "history.jsonl"
 THUMB_SIZE = 160
-KIND_LABELS = {"image": "截图", "video": "录屏"}
+KIND_LABELS = {"image": "截图", "video": "录屏", "file": "文件"}
 
 
 def history_path() -> Path:
@@ -155,6 +155,24 @@ class History:
         )
         return self.add(entry)
 
+    def add_file(self, path, targets: List[str], ok: bool,
+                 remote_path: str = "", message: str = "") -> HistoryEntry:
+        """任意文件（非截图非录屏）：只记引用，不复制、不生成缩略图。
+
+        local_path 指向用户自己的文件，清历史时绝不能删（同 video）。
+        """
+        local = str(path) if path and Path(path).exists() else ""
+        try:
+            size = Path(path).stat().st_size if local else 0
+        except OSError:
+            size = 0
+        entry = HistoryEntry(
+            name=Path(path).name if path else "", kind="file", size=size, ok=ok,
+            targets=list(targets), remote_path=remote_path, local_path=local,
+            message=message,
+        )
+        return self.add(entry)
+
     # ------------------------------------------------------------------ 读取
     def entries(self, limit: int = 60) -> List[HistoryEntry]:
         path = history_path()
@@ -246,10 +264,10 @@ class History:
 
     @staticmethod
     def _remove_files(entry: HistoryEntry) -> None:
-        # 图片条目的 local_path 是 sent/ 里应用自管的副本，可以删；
-        # 录屏条目指向用户视频目录里的原始录像文件，只清记录、不动原件。
+        # 只有图片条目的 local_path 是 sent/ 里应用自管的副本，可以删；
+        # 录屏/文件条目指向用户自己的原件，只清记录、不动文件。
         items = [entry.thumb]
-        if entry.kind != "video":
+        if entry.kind == "image":
             items.append(entry.local_path)
         for item in items:
             if not item:

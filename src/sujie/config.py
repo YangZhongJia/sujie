@@ -148,6 +148,7 @@ class ClientConfig(_JsonConfig):
     targets: list[Dict[str, Any]] = field(default_factory=list)
 
     capture_mode: str = "window"     # window | monitor | screen | region
+    after_capture: str = "editor"    # editor | send | copy | pin
     auto_start: bool = False
     retry_enabled: bool = True
     retry_interval: int = 60         # 离线重发轮询间隔（秒）
@@ -187,6 +188,7 @@ class ClientConfig(_JsonConfig):
     _defaults = {
         "targets": [],
         "capture_mode": "window",
+        "after_capture": "editor",
         "auto_start": False,
         "retry_enabled": True,
         "retry_interval": 60,

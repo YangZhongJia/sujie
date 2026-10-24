@@ -142,10 +142,12 @@ class ReceiverHandler(BaseHTTPRequestHandler):
 
         raw_name = unquote(self.headers.get("X-File-Name", "") or "")
         name = sanitize_filename(raw_name, "shot.png")
+        # 「发送文件」带 X-Keep-Name：文件名对用户有含义（报价单.docx），保留原名
+        keep_name = self.headers.get("X-Keep-Name", "").strip() == "1"
 
         # 边收边写盘：录屏动辄上百 MB，整段读进内存会直接把进程撑爆
         try:
-            saved, written = self._save_stream(name, length)
+            saved, written = self._save_stream(name, length, keep_name=keep_name)
         except OSError as exc:
             self._send_json({"ok": False, "message": f"写入失败：{exc}"}, 500)
             return
@@ -166,11 +168,13 @@ class ReceiverHandler(BaseHTTPRequestHandler):
         )
 
     # ---------------------------------------------------------------- 辅助
-    def _save_stream(self, name: str, length: int) -> tuple:
+    def _save_stream(self, name: str, length: int, keep_name: bool = False) -> tuple:
         """按块把请求体写进 ``.part``，收全了再改名，避免半截文件被当成成品。
 
         ThreadingHTTPServer 下同一秒可能有多个并发上传：``.part`` 名必须每请求唯一
         （否则两个线程会往同一个临时文件里交错写），最终定名在锁内重查重名。
+        ``keep_name`` 时最终名用消毒后的原文件名（重名加 -1/-2 后缀），否则按
+        「前缀-时间戳」改写。
         """
         directory = self.state.target_dir()
         os.makedirs(directory, exist_ok=True)
@@ -194,10 +198,18 @@ class ReceiverHandler(BaseHTTPRequestHandler):
             if written != length:
                 raise OSError(f"接收不完整（{written}/{length} 字节）")
             with _NAMING_LOCK:
-                candidate = os.path.join(directory, f"{prefix}-{stamp}{ext}")
+                if keep_name:
+                    stem = stem[:80] or "file"  # 防超长文件名顶到 Windows 路径上限
+                    candidate = os.path.join(directory, f"{stem}{ext}")
+                else:
+                    candidate = os.path.join(directory, f"{prefix}-{stamp}{ext}")
                 index = 1
                 while os.path.exists(candidate):
-                    candidate = os.path.join(directory, f"{prefix}-{stamp}-{index}{ext}")
+                    suffix = f"-{index}"
+                    if keep_name:
+                        candidate = os.path.join(directory, f"{stem}{suffix}{ext}")
+                    else:
+                        candidate = os.path.join(directory, f"{prefix}-{stamp}{suffix}{ext}")
                     index += 1
                 os.replace(part, candidate)
         except OSError:

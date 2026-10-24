@@ -163,6 +163,21 @@ def main() -> int:
         check(any(int(d.get("http_port", 0)) == PORT for d in found), "应答端口与接收端一致",
               str([d.get("http_port") for d in found]))
 
+    print("\n[5b] 发送任意文件（保留原文件名）")
+    src_dir = Path(tempfile.mkdtemp(prefix="sujie_lan_file_"))
+    src_file = src_dir / "会议纪要-测试.txt"
+    src_file.write_text("速截 keep_name 测试内容 123", encoding="utf-8")
+    file_target = [{"host": ip, "port": PORT, "token": "lan-token"}]
+    res_file = uploader.upload_targets_file(file_target, src_file.name, str(src_file), keep_name=True)
+    check(res_file.ok, "任意文件经局域网上传成功", res_file.message)
+    arrived = SAVE_DIR / src_file.name
+    check(arrived.exists(), "接收端保留原文件名", str(arrived))
+    if arrived.exists():
+        check(arrived.read_text(encoding="utf-8") == "速截 keep_name 测试内容 123", "文件内容与源文件一致")
+    res_again = uploader.upload_targets_file(file_target, src_file.name, str(src_file), keep_name=True)
+    check(res_again.ok, "同名文件再次上传成功", res_again.message)
+    check((SAVE_DIR / "会议纪要-测试-1.txt").exists(), "重名自动加 -1 后缀")
+
     if screen_ok:
         print("\n[6] 截图端指向局域网 IP，点球验证")
         (APPDATA_DIR / "client.json").write_text(json.dumps({
