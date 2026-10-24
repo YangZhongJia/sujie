@@ -28,7 +28,7 @@ class RegionSelector(QWidget):
     def __init__(self, screen_image: Image.Image, monitor: win32util.Monitor, parent=None):
         super().__init__(parent)
         self._monitor = monitor
-        self._origin = self._drag_start = None
+        self._origin = None
         self._current = QRect()
         self._has_selection = False
 
@@ -107,7 +107,6 @@ class RegionSelector(QWidget):
     def mousePressEvent(self, event):  # noqa: N802
         if event.button() == Qt.LeftButton:
             self._origin = event.globalPosition().toPoint()
-            self._drag_start = self._origin
             self._current = QRect(self._origin, self._origin)
             self.update()
 

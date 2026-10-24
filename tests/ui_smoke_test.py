@@ -195,26 +195,43 @@ def main() -> int:  # noqa: C901
             return QMessageBox.Yes
 
     orig_msgbox = settings_ui.QMessageBox
-    orig_test = settings_ui.uploader.test_connection
+    orig_test = settings_ui.uploader.test_targets
     settings_ui.QMessageBox = _FakeBox  # type: ignore[assignment]
+
+    def run_accept(dialog):
+        """连接测试在后台线程跑，_on_accept 返回后要等线程收尾。
+
+        先把 result 重置掉：对话框第二次保存时 result 可能仍是上次的
+        Accepted，等待循环会立即空转退出，线程还没保存就被销毁。
+        """
+        import time
+
+        dialog.setResult(QDialog.Rejected)
+        dialog._on_accept()
+        waited = 0.0
+        while dialog.result() != QDialog.Accepted and waited < 8.0:
+            time.sleep(0.02)
+            app.processEvents()
+            waited += 0.02
+
     try:
         dialog._targets.clear()
         dialog._refresh_targets()
         dialog.host_edit.setText("")
-        dialog._on_accept()
+        run_accept(dialog)
         check(dialog.result() == QDialog.Accepted, "可先保存模式、稍后配置接收端")
 
         # 填好 + 测试连接通过 → 应写入 client.json
         seen.clear()
-        settings_ui.uploader.test_connection = lambda _c: UploadResult(True, "连接正常")
+        settings_ui.uploader.test_targets = lambda _t: UploadResult(True, "连接正常")
         dialog.host_edit.setText("127.0.0.1")
         dialog.port_spin.setValue(18765)
         dialog._add_target()
-        dialog._on_accept()
+        run_accept(dialog)
         check(dialog.result() == QDialog.Accepted, "填好后保存成功")
     finally:
         settings_ui.QMessageBox = orig_msgbox  # type: ignore[assignment]
-        settings_ui.uploader.test_connection = orig_test
+        settings_ui.uploader.test_targets = orig_test
 
     check(config_path.exists(), "设置已落盘", str(config_path))
     if config_path.exists():

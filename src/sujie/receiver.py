@@ -18,6 +18,7 @@ import socket
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
@@ -28,6 +29,7 @@ from .config import AppModeConfig, MODE_CHOICES, MODE_LABELS
 
 RECEIVER_VALUE_NAME = "速截"
 UPLOAD_CHUNK = 1024 * 1024
+_NAMING_LOCK = threading.Lock()  # 并发上传最终定名时重查重名
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._\-一-鿿 ]")
 
@@ -165,21 +167,21 @@ class ReceiverHandler(BaseHTTPRequestHandler):
 
     # ---------------------------------------------------------------- 辅助
     def _save_stream(self, name: str, length: int) -> tuple:
-        """按块把请求体写进 ``.part``，收全了再改名，避免半截文件被当成成品。"""
+        """按块把请求体写进 ``.part``，收全了再改名，避免半截文件被当成成品。
+
+        ThreadingHTTPServer 下同一秒可能有多个并发上传：``.part`` 名必须每请求唯一
+        （否则两个线程会往同一个临时文件里交错写），最终定名在锁内重查重名。
+        """
         directory = self.state.target_dir()
         os.makedirs(directory, exist_ok=True)
         stem, ext = os.path.splitext(name)
         ext = ext or ".png"
         prefix = self.state.config.filename_prefix or "shot"
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        candidate = os.path.join(directory, f"{prefix}-{stamp}{ext}")
-        index = 1
-        while os.path.exists(candidate):
-            candidate = os.path.join(directory, f"{prefix}-{stamp}-{index}{ext}")
-            index += 1
-        part = candidate + ".part"
+        part = os.path.join(directory, f"{prefix}-{stamp}-{uuid.uuid4().hex[:8]}.part")
         remaining = length
         written = 0
+        candidate = ""
         try:
             with open(part, "wb") as fh:
                 while remaining > 0:
@@ -191,32 +193,21 @@ class ReceiverHandler(BaseHTTPRequestHandler):
                     remaining -= len(chunk)
             if written != length:
                 raise OSError(f"接收不完整（{written}/{length} 字节）")
-            os.replace(part, candidate)
+            with _NAMING_LOCK:
+                candidate = os.path.join(directory, f"{prefix}-{stamp}{ext}")
+                index = 1
+                while os.path.exists(candidate):
+                    candidate = os.path.join(directory, f"{prefix}-{stamp}-{index}{ext}")
+                    index += 1
+                os.replace(part, candidate)
         except OSError:
-            for path in (part, candidate):
-                try:
-                    if os.path.exists(path):
-                        os.remove(path)
-                except OSError:
-                    pass
+            try:
+                os.remove(part)
+            except OSError:
+                pass
             raise
         return candidate, written
 
-    def _save(self, name: str, data: bytes) -> str:
-        directory = self.state.target_dir()
-        os.makedirs(directory, exist_ok=True)
-        stem, ext = os.path.splitext(name)
-        ext = ext or ".png"
-        prefix = self.state.config.filename_prefix or "shot"
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        candidate = os.path.join(directory, f"{prefix}-{stamp}{ext}")
-        index = 1
-        while os.path.exists(candidate):
-            candidate = os.path.join(directory, f"{prefix}-{stamp}-{index}{ext}")
-            index += 1
-        with open(candidate, "wb") as fh:
-            fh.write(data)
-        return candidate
 
 def start_server(config) -> tuple[ThreadingHTTPServer, threading.Thread]:
     """后台启动 HTTP 服务。"""
@@ -267,11 +258,7 @@ def _receiver_main_gui(argv=None) -> int:
 
     httpd = None
     responder = None
-
-    def device_info() -> dict:
-        info = ReceiverState(config).info()
-        info["http_port"] = config.port
-        return info
+    state = ReceiverState(config)
 
     def ensure_server():
         nonlocal httpd, responder
@@ -290,7 +277,10 @@ def _receiver_main_gui(argv=None) -> int:
                 8000,
             )
             return
-        responder = discovery.DiscoveryResponder(device_info)
+        # 改端口重启时旧的应答线程还在跑，先停掉，避免双份 UDP 应答
+        if responder is not None:
+            responder.stop()
+        responder = discovery.DiscoveryResponder(state.info)
         responder.start()
         bootstrap.log(f"局域网发现服务已启动，端口 {discovery.DISCOVERY_PORT}")
         refresh_tray()
@@ -382,7 +372,6 @@ def _receiver_main_gui(argv=None) -> int:
             refresh_tray()
 
     def show_info():
-        state = ReceiverState(config)
         info = state.info()
         QMessageBox.information(
             None,
@@ -469,9 +458,10 @@ def main(argv=None) -> int:
     if args.no_tray:
         win32util.enable_dpi_awareness()
         httpd, _ = start_server(config)
-        responder = discovery.DiscoveryResponder(lambda: ReceiverState(config).info())
+        shared_state = ReceiverState(config)
+        responder = discovery.DiscoveryResponder(shared_state.info)
         responder.start()
-        info = ReceiverState(config).info()
+        info = shared_state.info()
         print(f"{APP_NAME} 接收端已启动：http://{info['ip']}:{config.port}")
         print(f"保存目录：{config.resolved_save_dir()}")
         try:

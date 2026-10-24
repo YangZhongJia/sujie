@@ -141,10 +141,13 @@ class History:
         )
         return self.add(entry)
 
-    def add_video(self, path: Path, targets: List[str], ok: bool,
+    def add_video(self, path, targets: List[str], ok: bool,
                   remote_path: str = "", message: str = "") -> HistoryEntry:
         local = str(path) if path and Path(path).exists() else ""
-        size = Path(path).stat().st_size if local else 0
+        try:
+            size = Path(path).stat().st_size if local else 0
+        except OSError:
+            size = 0
         entry = HistoryEntry(
             name=Path(path).name if path else "", kind="video", size=size, ok=ok,
             targets=list(targets), remote_path=remote_path, local_path=local,
@@ -243,7 +246,12 @@ class History:
 
     @staticmethod
     def _remove_files(entry: HistoryEntry) -> None:
-        for item in (entry.local_path, entry.thumb):
+        # 图片条目的 local_path 是 sent/ 里应用自管的副本，可以删；
+        # 录屏条目指向用户视频目录里的原始录像文件，只清记录、不动原件。
+        items = [entry.thumb]
+        if entry.kind != "video":
+            items.append(entry.local_path)
+        for item in items:
             if not item:
                 continue
             try:

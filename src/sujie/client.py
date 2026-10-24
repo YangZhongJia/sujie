@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import os
 import sys
 import time
@@ -103,25 +102,32 @@ class _UploadTask(QRunnable):
         self._history = history
         self._labels = labels or []
 
-    def run(self):  # noqa: D102
-        result = uploader.upload_targets(self._targets, self._filename, self._data)
-        queued = bool(result.failed_targets) and self._retry_enabled
-        if queued:
-            try:
-                self._outbox.add(self._filename, self._data, result.failed_targets)
-            except OSError:
-                queued = False
-        if self._history is not None:
-            try:
-                self._history.add_image(
-                    self._filename, self._data, self._labels, result.ok,
-                    result.remote_path, result.message,
-                )
-            except Exception as exc:  # 历史记录失败不能影响发送结果
-                bootstrap.log(f"写历史记录失败：{exc!r}")
-        self._signals.done.emit(
-            result.successful_targets, result.total_targets, result.message, self._filename, queued
-        )
+    def run(self) -> None:  # noqa: D102
+        try:
+            result = uploader.upload_targets(self._targets, self._filename, self._data)
+            queued = bool(result.failed_targets) and self._retry_enabled
+            if queued:
+                try:
+                    self._outbox.add(self._filename, self._data, result.failed_targets)
+                except OSError:
+                    queued = False
+            if self._history is not None:
+                try:
+                    self._history.add_image(
+                        self._filename, self._data, self._labels, result.ok,
+                        result.remote_path, result.message,
+                    )
+                except Exception as exc:  # 历史记录失败不能影响发送结果
+                    bootstrap.log(f"写历史记录失败：{exc!r}")
+            self._signals.done.emit(
+                result.successful_targets, result.total_targets, result.message, self._filename, queued
+            )
+        except Exception as exc:
+            # 不兜底的话回调不会触发，_busy 永远卡住、悬浮球一直灰
+            bootstrap.log(f"上传任务异常：{exc!r}")
+            self._signals.done.emit(
+                0, max(1, len(self._targets)), f"上传任务异常：{exc}", self._filename, False
+            )
 
 
 class _FileUploadTask(QRunnable):
@@ -140,25 +146,32 @@ class _FileUploadTask(QRunnable):
         self._history = history
         self._labels = labels or []
 
-    def run(self):  # noqa: D102
-        result = uploader.upload_targets_file(self._targets, self._filename, self._path)
-        queued = bool(result.failed_targets) and self._retry_enabled
-        if queued:
-            try:
-                self._outbox.add_file(self._filename, self._path, result.failed_targets)
-            except OSError:
-                queued = False
-        if self._history is not None:
-            try:
-                self._history.add_video(
-                    self._path, self._labels, result.ok, result.remote_path, result.message
-                )
-            except Exception as exc:
-                bootstrap.log(f"写历史记录失败：{exc!r}")
-        self._signals.done.emit(
-            result.successful_targets, result.total_targets, result.message,
-            self._filename, queued, self._path,
-        )
+    def run(self) -> None:  # noqa: D102
+        try:
+            result = uploader.upload_targets_file(self._targets, self._filename, self._path)
+            queued = bool(result.failed_targets) and self._retry_enabled
+            if queued:
+                try:
+                    self._outbox.add_file(self._filename, self._path, result.failed_targets)
+                except OSError:
+                    queued = False
+            if self._history is not None:
+                try:
+                    self._history.add_video(
+                        self._path, self._labels, result.ok, result.remote_path, result.message
+                    )
+                except Exception as exc:
+                    bootstrap.log(f"写历史记录失败：{exc!r}")
+            self._signals.done.emit(
+                result.successful_targets, result.total_targets, result.message,
+                self._filename, queued, self._path,
+            )
+        except Exception as exc:
+            bootstrap.log(f"录屏上传任务异常：{exc!r}")
+            self._signals.done.emit(
+                0, max(1, len(self._targets)), f"上传任务异常：{exc}",
+                self._filename, False, self._path,
+            )
 
 
 class _HotkeyFilter(QAbstractNativeEventFilter):
@@ -535,6 +548,12 @@ class ClientApp(QObject):
                     APP_NAME, f"录屏已发送到 {succeeded} 台电脑：{filename}",
                     QSystemTrayIcon.Information, 3000,
                 )
+            if not self.config.record_keep_local and os.path.isfile(path):
+                try:
+                    os.remove(path)
+                    bootstrap.log(f"已按设置删除本地录像：{path}")
+                except OSError as exc:
+                    bootstrap.log(f"删除本地录像失败：{exc!r}")
         else:
             self.tray.showMessage(
                 APP_NAME,
@@ -577,7 +596,6 @@ class ClientApp(QObject):
     def show_history(self) -> None:
         dialog = history_mod.HistoryDialog(self.history, self.parent())
         dialog.resendRequested = self._resend_entry
-        dialog._sync_buttons()
         dialog.exec()
 
     def _resend_entry(self, entry) -> None:
@@ -805,12 +823,7 @@ class ClientApp(QObject):
 
     @staticmethod
     def _to_qimage(image) -> QImage:
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        result = QImage.fromData(buffer.getvalue(), "PNG")
-        if result.isNull():
-            raise RuntimeError("无法打开截图图像")
-        return result
+        return _pil_to_qimage(image)
 
     # ------------------------------------------------------------ 上传回调
     def _on_upload_done(self, succeeded: int, total: int, message: str, filename: str, queued: bool) -> None:
@@ -868,6 +881,9 @@ class ClientApp(QObject):
         if dialog.exec():
             self.config = ClientConfig.load()
             self.ball.apply_config(self.config)
+            self.radial.set_accent(self.config.ball_color)
+            self.history.limit = max(1, int(self.config.history_limit))
+            self.pins.max_count = max(1, int(self.config.pin_max_count))
             for key, action in self._mode_actions.items():
                 action.setChecked(key == self.config.capture_mode)
             self._retry_timer.setInterval(int(max(15, self.config.retry_interval)) * 1000)
@@ -899,14 +915,27 @@ class ClientApp(QObject):
         self.app.quit()
 
 
+def _pil_to_qimage(image) -> QImage:
+    """PIL 图像 → QImage，直接走原始像素字节，免去 PNG 编码再解码的往返。"""
+    if image.mode == "P":
+        image = image.convert("RGBA")
+    if image.mode == "RGBA":
+        raw = image.tobytes("raw", "BGRA")
+        result = QImage(raw, image.width, image.height, image.width * 4, QImage.Format_ARGB32)
+    else:
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        raw = image.tobytes("raw", "RGB")
+        result = QImage(raw, image.width, image.height, image.width * 3, QImage.Format_RGB888)
+    if result.isNull():
+        raise RuntimeError("无法打开截图图像")
+    # copy() 把数据从临时 Python 缓冲里拷出来，QImage 才能安全持有
+    return result.copy()
+
+
 def _pil_to_pixmap(image) -> QPixmap:
-    """PIL 图像 → QPixmap（走 PNG 中转，纯 RGBA/RGB 都稳）。"""
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    pixmap = QPixmap()
-    if not pixmap.loadFromData(buffer.getvalue(), "PNG"):
-        raise RuntimeError("无法转换为显示图像")
-    return pixmap
+    """PIL 图像 → QPixmap（原始像素直转，纯 RGBA/RGB 都稳）。"""
+    return QPixmap.fromImage(_pil_to_qimage(image))
 
 
 def _safe_title(title: str) -> str:

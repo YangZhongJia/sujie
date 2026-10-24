@@ -150,8 +150,8 @@ def normalize_rect(rect: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]
         try:
             from .win32util import virtual_screen_rect
 
-            left, top, vwidth, vheight = virtual_screen_rect()
-            return 0, 0, _even(max(2, vwidth)), _even(max(2, vheight))
+            left, top, right, bottom = virtual_screen_rect()
+            return 0, 0, _even(max(2, right - left)), _even(max(2, bottom - top))
         except Exception:
             return 0, 0, _even(max(2, width or 2)), _even(max(2, height or 2))
     return x, y, _even(max(2, width)), _even(max(2, height))

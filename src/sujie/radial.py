@@ -108,6 +108,11 @@ class RadialMenu(QWidget):
     def is_open(self) -> bool:
         return self._open
 
+    def set_accent(self, color: str) -> None:
+        """跟随设置里的悬浮球配色。"""
+        self._accent = QColor(color)
+        self.update()
+
     def current_sector(self) -> Optional[str]:
         return self._current
 

@@ -33,7 +33,8 @@ def receiver_target(host: str, port: int = 8765, token: str = "", name: str = ""
     if not 1 <= port <= 65535:
         raise ValueError("接收端端口必须在 1 到 65535 之间")
     identity = sha256(f"{host.casefold()}:{port}".encode("utf-8")).hexdigest()[:16]
-    return {"id": identity, "name": name.strip() or host, "host": host, "port": port, "token": token}
+    return {"id": identity, "name": name.strip() or host, "host": host, "port": port,
+            "token": str(token or "").strip()}
 
 
 def _atomic_write(path: str, data: str) -> None:

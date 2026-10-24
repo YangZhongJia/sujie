@@ -282,17 +282,17 @@ def upload_targets(targets: List[dict], filename: str, data: bytes) -> UploadRes
     return UploadResult(not failed, message, successful_targets=sent, total_targets=total, failed_targets=failed)
 
 
-def test_connection(config: ClientConfig) -> UploadResult:
-    """测试所有接收端，汇总失败目标。"""
+def test_targets(targets: List[dict]) -> UploadResult:
+    """逐个 ping 接收端，汇总失败目标。"""
     failed = []
     sent = 0
-    for target in config.targets:
+    for target in targets:
         result = http_ping(str(target.get("host", "")), int(target.get("port", 8765)), str(target.get("token", "")))
         if result.ok:
             sent += 1
         else:
             failed.append({**target, "error": result.message})
-    total = len(config.targets)
+    total = len(targets)
     details = "; ".join(
         f"{target.get('host')}:{target.get('port')} {target.get('error')}"
         for target in failed
@@ -301,6 +301,11 @@ def test_connection(config: ClientConfig) -> UploadResult:
     if details:
         message += f"；{details}"
     return UploadResult(total > 0 and not failed, message, successful_targets=sent, total_targets=total, failed_targets=failed)
+
+
+def test_connection(config: ClientConfig) -> UploadResult:
+    """测试所有接收端，汇总失败目标。"""
+    return test_targets(config.targets)
 
 
 # ------------------------------------------------------------------ 待发队列

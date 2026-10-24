@@ -38,6 +38,7 @@ from .config import (
     MODE_LABELS,
     receiver_target,
 )
+from .uploader import UploadResult
 
 RECORD_MODES = ("monitor", "screen", "window", "region")
 RECORD_MODE_LABELS = {
@@ -60,6 +61,20 @@ class _ScanThread(QThread):
             self.finished_ok.emit([])
 
 
+class _TestThread(QThread):
+    finished_ok = Signal(object)
+
+    def __init__(self, targets: list, parent=None):
+        super().__init__(parent)
+        self._targets = targets
+
+    def run(self):  # noqa: D102
+        try:
+            self.finished_ok.emit(uploader.test_targets(self._targets))
+        except Exception as exc:
+            self.finished_ok.emit(UploadResult(False, f"连接测试失败：{exc}"))
+
+
 class SettingsDialog(QDialog):
     """客户端设置。"""
 
@@ -67,6 +82,8 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.config = config
         self._scan_thread: Optional[_ScanThread] = None
+        self._test_thread: Optional[_TestThread] = None
+        self._pending_config: Optional[ClientConfig] = None
         self._targets = [dict(target) for target in config.targets]
         self.setWindowTitle("速截 设置")
         self.setMinimumSize(820, 620)
@@ -110,9 +127,11 @@ class SettingsDialog(QDialog):
         layout.addWidget(self.test_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("保存")
-        buttons.button(QDialogButtonBox.Cancel).setText("取消")
-        buttons.button(QDialogButtonBox.Ok).setProperty("primary", True)
+        self._ok_button = buttons.button(QDialogButtonBox.Ok)
+        self._cancel_button = buttons.button(QDialogButtonBox.Cancel)
+        self._ok_button.setText("保存")
+        self._cancel_button.setText("取消")
+        self._ok_button.setProperty("primary", True)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -470,23 +489,48 @@ class SettingsDialog(QDialog):
     def _on_accept(self) -> None:
         config = self._collect()
         if config.targets:
-            result = uploader.test_connection(config)
-        else:
-            result = None
-        if result and not result.ok:
-            answer = QMessageBox.question(
-                self,
-                "连接测试未通过",
-                f"测试结果：{result.message}\n\n仍然保存设置吗？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if answer != QMessageBox.Yes:
-                return
-        elif result:
-            self.test_label.setText(f"连接正常：{result.remote_path or result.message}")
+            # 连接测试放后台线程，逐个 ping 可能要好几秒，不能冻住界面
+            self._pending_config = config
+            self._ok_button.setEnabled(False)
+            self._cancel_button.setEnabled(False)
+            self.test_label.setText("正在测试连接…")
+            self._test_thread = _TestThread([dict(t) for t in config.targets], self)
+            self._test_thread.finished_ok.connect(self._on_test_done)
+            self._test_thread.start()
         else:
             self.test_label.setText("还没有添加接收端，可稍后在设置中添加。")
+            self._finish_accept(config)
+
+    def reject(self) -> None:  # noqa: N802
+        # 测试期间用户取消：清掉待保存配置，迟到的测试结果就不能替用户保存
+        self._pending_config = None
+        super().reject()
+
+    def _on_test_done(self, result: UploadResult) -> None:
+        self._ok_button.setEnabled(True)
+        self._cancel_button.setEnabled(True)
+        config = self._pending_config
+        self._pending_config = None
+        self._test_thread = None
+        if config is None:
+            return
+        if result.ok:
+            self.test_label.setText(f"连接正常：{result.remote_path or result.message}")
+            self._finish_accept(config)
+            return
+        answer = QMessageBox.question(
+            self,
+            "连接测试未通过",
+            f"测试结果：{result.message}\n\n仍然保存设置吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer == QMessageBox.Yes:
+            self._finish_accept(config)
+        else:
+            self.test_label.setText(f"测试结果：{result.message}（未保存）")
+
+    def _finish_accept(self, config: ClientConfig) -> None:
         config.save()
         mode = AppModeConfig.load()
         mode.mode = self.app_mode

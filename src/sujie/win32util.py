@@ -272,10 +272,7 @@ def open_path(path: str) -> bool:
     if not path:
         return False
     try:
-        if os.path.isdir(path):
-            os.startfile(path)  # type: ignore[attr-defined]
-        else:
-            os.startfile(path)  # type: ignore[attr-defined]
+        os.startfile(path)  # type: ignore[attr-defined]
         return True
     except Exception:
         try:
@@ -305,10 +302,12 @@ def local_ipv4_addresses() -> List[str]:
     # 1) 默认路由出口网卡
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0.3)
-        s.connect(("223.5.5.5", 80))
-        add(s.getsockname()[0])
-        s.close()
+        try:
+            s.settimeout(0.3)
+            s.connect(("223.5.5.5", 80))
+            add(s.getsockname()[0])
+        finally:
+            s.close()
     except Exception:
         pass
 
