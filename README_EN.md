@@ -195,6 +195,7 @@ Yes, no limit on receivers. Two machines can also send in both directions ("Both
 - Editor gained "Copy to clipboard" and "Save locally"
 - New "Send file…": any file type to multiple computers, original filenames kept
 - History supports files; fixed screenshots not appearing in history
+- Stability fixes: occasional multi-target upload hangs, concurrent receiver writes overwriting each other, settings dialog freezing during connection tests, clearing history deleting original recordings, wrong recording area when a secondary monitor sits left of the primary
 
 **v1.1.x** (2026-10-23)
 - Screen recording (region / window / monitor / full screen, bundled ffmpeg)
