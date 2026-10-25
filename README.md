@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
+</p>
+
 <div align="center">
   <img src="assets/sujie.png" alt="速截图标" width="92">
   <h1>速截</h1>
