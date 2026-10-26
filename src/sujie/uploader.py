@@ -24,6 +24,9 @@ USER_AGENT = "Sujie/1.0"
 # 反而会互相挤占。普通交换机环境下 4 路并发足够跑满。
 MAX_PARALLEL_TARGETS = 4
 
+# 离线待发队列的条目上限，防止收图电脑长期离线时队列无限增长
+OUTBOX_MAX_ITEMS = 200
+
 
 def _send_parallel(targets: List[dict], send: Callable[[dict], "UploadResult"]) -> List["UploadResult"]:
     """并行把同一份内容发给所有接收端，返回结果列表（顺序与 targets 一致）。
@@ -341,10 +344,32 @@ def test_connection(config: ClientConfig) -> UploadResult:
 # ------------------------------------------------------------------ 待发队列
 
 class Outbox:
-    """离线待发队列：发送失败时把图片存到本地，恢复连接后自动补发。"""
+    """离线待发队列：发送失败时把图片存到本地，恢复连接后自动补发。
+
+    队列条目数有上限（:data:`OUTBOX_MAX_ITEMS`）：收图电脑长期离线时，
+    每次发送失败都会往这里堆一份副本，不设上限会把磁盘慢慢撑爆。
+    超限后按最旧优先淘汰（连同 meta 一起删）。
+    """
 
     def __init__(self, directory: Optional[str] = None):
         self.directory = directory or str(paths.outbox_dir())
+
+    def _evict_old(self) -> None:
+        try:
+            names = [n for n in os.listdir(self.directory)
+                     if n.lower().endswith(MEDIA_SUFFIXES)]
+        except OSError:
+            return
+        excess = len(names) - OUTBOX_MAX_ITEMS
+        if excess <= 0:
+            return
+        def _mtime(name: str) -> float:
+            try:
+                return os.path.getmtime(os.path.join(self.directory, name))
+            except OSError:
+                return 0.0
+        for name in sorted(names, key=_mtime)[:excess]:
+            self.remove(name)
 
     def add(self, filename: str, data: bytes, targets: Optional[List[dict]] = None) -> str:
         os.makedirs(self.directory, exist_ok=True)
@@ -358,6 +383,7 @@ class Outbox:
         with open(target, "wb") as fh:
             fh.write(data)
         _write_meta(target, {"filename": filename, "targets": targets or []})
+        self._evict_old()
         return target
 
     def pending(self) -> List[Tuple[str, bytes, str, List[dict]]]:
@@ -395,6 +421,7 @@ class Outbox:
             index += 1
         shutil.copy2(source, target)
         _write_meta(target, {"filename": filename, "targets": targets or []})
+        self._evict_old()
         return target
 
     def pending_files(self) -> List[Tuple[str, str, str, List[dict]]]:

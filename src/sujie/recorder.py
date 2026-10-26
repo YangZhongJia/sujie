@@ -337,6 +337,7 @@ class Recorder:
                         pass
 
         elapsed = self.elapsed_seconds()
+        exit_code = proc.poll()
         self._proc = None
         self._started = 0.0
         tail = self._read_log_tail()
@@ -344,6 +345,11 @@ class Recorder:
 
         if path is None:
             return False, None, "录制文件路径丢失"
+        if exit_code is not None and exit_code != 0:
+            # ffmpeg 非 0 退出（崩溃 / 被杀 / 超时强杀）= mp4 没写完 moov atom，
+            # 这种文件即使有几个 MB 也播不出来，不能按大小判成功
+            self._last_error = tail or f"录制进程异常退出（退出码 {exit_code}），文件不完整"
+            return False, path, self._last_error
         if not path.exists() or path.stat().st_size < 2048:
             self._last_error = tail or "录制文件没有生成内容"
             return False, path, self._last_error

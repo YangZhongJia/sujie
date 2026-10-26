@@ -19,9 +19,11 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -300,6 +302,20 @@ class HistoryDialog(QDialog):
         self.summary.setProperty("role", "subtitle")
         layout.addWidget(self.summary)
 
+        filter_row = QHBoxLayout()
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("搜索文件名或目标电脑…")
+        self.search_edit.setClearButtonEnabled(True)
+        self.kind_combo = QComboBox()
+        self.kind_combo.addItem("全部类型", "")
+        for key in ("image", "video", "file"):
+            self.kind_combo.addItem(KIND_LABELS[key], key)
+        self.search_edit.textChanged.connect(lambda _text: self._apply_filter())
+        self.kind_combo.currentIndexChanged.connect(lambda _index: self._apply_filter())
+        filter_row.addWidget(self.search_edit, 1)
+        filter_row.addWidget(self.kind_combo)
+        layout.addLayout(filter_row)
+
         self.content = QStackedWidget(self)
         self.empty_page = QWidget(self)
         empty_layout = QVBoxLayout(self.empty_page)
@@ -346,16 +362,32 @@ class HistoryDialog(QDialog):
     # ---------------------------------------------------------------- 数据
     def reload(self) -> None:
         self._entries = self._history.entries(limit=200)
-        self.list.clear()
+        self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        """按类型 + 关键字过滤显示；关键字匹配文件名和目标电脑。"""
+        query = self.search_edit.text().strip().lower()
+        kind = self.kind_combo.currentData() or ""
+        shown: List[HistoryEntry] = []
         for entry in self._entries:
+            if kind and entry.kind != kind:
+                continue
+            if query and query not in " ".join([entry.name, *entry.targets]).lower():
+                continue
+            shown.append(entry)
+        self.list.clear()
+        for entry in shown:
             item = QListWidgetItem(self._item_text(entry))
             icon = self._icon_for(entry)
             if icon is not None:
                 item.setIcon(icon)
             item.setData(Qt.UserRole, entry)
             self.list.addItem(item)
-        self.content.setCurrentWidget(self.list if self._entries else self.empty_page)
-        self.summary.setText(f"共 {len(self._entries)} 条")
+        self.content.setCurrentWidget(self.list if shown else self.empty_page)
+        if shown or not self._entries:
+            self.summary.setText(f"共 {len(self._entries)} 条")
+        else:
+            self.summary.setText(f"共 {len(self._entries)} 条 · 匹配 0 条")
         self._sync_buttons()
 
     def _item_text(self, entry: HistoryEntry) -> str:

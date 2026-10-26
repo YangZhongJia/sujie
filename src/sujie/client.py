@@ -532,7 +532,25 @@ class ClientApp(QObject):
 
     def _tick_record(self) -> None:
         if not self.recorder.is_recording():
+            # ffmpeg 进程在录制中途退出（崩溃 / 被安全软件结束）：
+            # 不收尾的话悬浮球会静默复原，用户不知道录了什么、存到哪
             self._record_timer.stop()
+            ok, path, message = self.recorder.stop()
+            self.ball.set_recording(False)
+            self._record_action.setText("开始录制")
+            bootstrap.log(f"录制进程中途退出 ok={ok} path={path} msg={message}")
+            if ok and path is not None:
+                self.tray.showMessage(
+                    APP_NAME,
+                    f"录制进程意外退出，已保存：{os.path.basename(str(path))}",
+                    QSystemTrayIcon.Warning, 5000,
+                )
+            else:
+                self.tray.showMessage(
+                    APP_NAME,
+                    f"录制已中止：{message or '未知原因'}",
+                    QSystemTrayIcon.Critical, 6000,
+                )
             return
         self.ball.set_record_text(self.recorder.elapsed_text())
         if self.recorder.over_size_limit():

@@ -38,6 +38,11 @@ TOOLS = (("pen", "画笔"), ("arrow", "箭头"), ("rect", "矩形"),
 RESULT_COPY = 2
 RESULT_SAVE = 3
 
+ZOOM_STEP = 1.15
+MIN_ZOOM = 1.0     # 1.0 = 适应窗口，画布永远完整可见，不会把用户「缩丢」
+MAX_ZOOM = 8.0
+PAN_KEEP_PX = 40   # 平移时画布至少保留在视口内的像素，防止整个图被拖出视野
+
 
 class _Canvas(QWidget):
     def __init__(self, image: QImage, parent=None):
@@ -50,8 +55,14 @@ class _Canvas(QWidget):
         self._start: QPointF | None = None
         self._current: QPointF | None = None
         self._points: list[QPointF] = []
+        self._zoom = 1.0
+        self._pan = QPointF(0.0, 0.0)
+        self._pan_origin: tuple[QPointF, QPointF] | None = None  # (按下位置, 当时平移量)
+        self._space_down = False
+        self.on_zoom_changed = None  # 缩放变化时回调 (zoom,)，编辑器用它刷新标签
         self.setMinimumSize(600, 360)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
 
     @property
     def image(self) -> QImage:
@@ -94,8 +105,54 @@ class _Canvas(QWidget):
 
     def _layout(self) -> tuple[QRectF, float]:
         scale = min(self.width() / self.source.width(), self.height() / self.source.height())
+        scale *= self._zoom
         width, height = self.source.width() * scale, self.source.height() * scale
-        return QRectF((self.width() - width) / 2, (self.height() - height) / 2, width, height), scale
+        x = (self.width() - width) / 2 + self._pan.x()
+        y = (self.height() - height) / 2 + self._pan.y()
+        return QRectF(x, y, width, height), scale
+
+    def _clamped_pan(self, pan: QPointF, width: float, height: float) -> QPointF:
+        """把平移量限制在「画布至少留 40px 在视口内」的范围内；放得下时强制居中。"""
+        def axis(value: float, image: float, view: float) -> float:
+            if image <= view:
+                return 0.0
+            limit = (image + view) / 2 - PAN_KEEP_PX
+            return min(max(value, -limit), limit)
+        return QPointF(axis(pan.x(), width, self.width()),
+                       axis(pan.y(), height, self.height()))
+
+    def _set_zoom(self, zoom: float, anchor: QPointF | None = None) -> None:
+        """缩放，anchor 为视口坐标锚点（该点的图像内容缩放前后不动）。"""
+        zoom = min(MAX_ZOOM, max(MIN_ZOOM, zoom))
+        if zoom == self._zoom:
+            return
+        rect, scale = self._layout()
+        new_scale = scale * zoom / self._zoom
+        self._zoom = zoom
+        if anchor is None:
+            self._pan = QPointF(0.0, 0.0)
+        else:
+            width = self.source.width() * new_scale
+            height = self.source.height() * new_scale
+            # 锚点下的图像点缩放前后保持同一位置
+            pan_x = anchor.x() - (anchor.x() - rect.x()) / scale * new_scale - (self.width() - width) / 2
+            pan_y = anchor.y() - (anchor.y() - rect.y()) / scale * new_scale - (self.height() - height) / 2
+            self._pan = self._clamped_pan(QPointF(pan_x, pan_y), width, height)
+        self._notify_zoom()
+        self.update()
+
+    def reset_view(self) -> None:
+        self._zoom = 1.0
+        self._pan = QPointF(0.0, 0.0)
+        self._notify_zoom()
+        self.update()
+
+    def _notify_zoom(self) -> None:
+        if self.on_zoom_changed is not None:
+            try:
+                self.on_zoom_changed(self._zoom)
+            except Exception:
+                pass
 
     def _image_point(self, point: QPointF) -> QPointF:
         rect, scale = self._layout()
@@ -154,8 +211,34 @@ class _Canvas(QWidget):
         self._rendered = None
         self.update()
 
+    def wheelEvent(self, event):  # noqa: N802
+        delta = event.angleDelta().y()
+        if not delta:
+            return
+        factor = ZOOM_STEP if delta > 0 else 1.0 / ZOOM_STEP
+        self._set_zoom(self._zoom * factor, event.position())
+
+    def keyPressEvent(self, event):  # noqa: N802
+        if event.key() == Qt.Key_Space and not event.isAutoRepeat():
+            self._space_down = True
+            self.setCursor(Qt.OpenHandCursor)
+            return
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):  # noqa: N802
+        if event.key() == Qt.Key_Space and not event.isAutoRepeat():
+            self._space_down = False
+            self.setCursor(Qt.CrossCursor)
+            return
+        super().keyReleaseEvent(event)
+
     def mousePressEvent(self, event):  # noqa: N802
-        if event.button() != Qt.LeftButton:
+        # 中键拖动 / 按住空格 + 左键拖动 = 平移画布
+        if event.button() == Qt.MiddleButton or (event.button() == Qt.LeftButton and self._space_down):
+            self._pan_origin = (event.position(), QPointF(self._pan))
+            self.setCursor(Qt.ClosedHandCursor)
+            return
+        if self._space_down or event.button() != Qt.LeftButton:
             return
         self._start = self._current = event.position()
         point = self._image_point(self._start)
@@ -168,6 +251,14 @@ class _Canvas(QWidget):
             self.update()
 
     def mouseMoveEvent(self, event):  # noqa: N802
+        if self._pan_origin is not None:
+            origin, base = self._pan_origin
+            rect, _ = self._layout()
+            moved = QPointF(base.x() + event.position().x() - origin.x(),
+                            base.y() + event.position().y() - origin.y())
+            self._pan = self._clamped_pan(moved, rect.width(), rect.height())
+            self.update()
+            return
         if self._start is None:
             return
         self._current = event.position()
@@ -176,6 +267,10 @@ class _Canvas(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event):  # noqa: N802
+        if self._pan_origin is not None and event.button() in (Qt.MiddleButton, Qt.LeftButton):
+            self._pan_origin = None
+            self.setCursor(Qt.OpenHandCursor if self._space_down else Qt.CrossCursor)
+            return
         if event.button() != Qt.LeftButton or self._start is None:
             return
         start, end = self._image_point(self._start), self._image_point(event.position())
@@ -237,10 +332,16 @@ class ScreenshotEditor(QDialog):
         toolbar.addWidget(undo)
         toolbar.addWidget(redo)
         toolbar.addWidget(divider)
-        size_label = QLabel(f"{image.width()} × {image.height()}")
-        size_label.setProperty("role", "subtitle")
-        toolbar.addWidget(size_label)
+        self.size_label = QLabel(f"{image.width()} × {image.height()}")
+        self.size_label.setProperty("role", "subtitle")
+        toolbar.addWidget(self.size_label)
+        fit_button = QPushButton("适应窗口")
+        fit_button.setProperty("tool", True)
+        fit_button.setToolTip("滚轮缩放、中键或空格+左键拖动后，点这里复位（100% 即适应窗口）")
+        fit_button.clicked.connect(self.canvas.reset_view)
+        toolbar.addWidget(fit_button)
         toolbar.addStretch(1)
+        self.canvas.on_zoom_changed = self._on_zoom_changed
         layout.addLayout(toolbar)
         layout.addWidget(self.canvas, 1)
         footer = QHBoxLayout()
@@ -294,3 +395,8 @@ class ScreenshotEditor(QDialog):
         self.canvas.tool = tool
         for key, button in self._tool_buttons.items():
             button.setChecked(key == tool)
+
+    def _on_zoom_changed(self, zoom: float) -> None:
+        self.size_label.setText(
+            f"{self.canvas.source.width()} × {self.canvas.source.height()} · {zoom * 100:.0f}%"
+        )

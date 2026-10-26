@@ -47,8 +47,39 @@ def demo() -> None:
     canvas.undo()
     assert canvas.image == text_marked
 
+    zoom_checks(canvas)
     dialog_demo(app)
     print("editor self-check passed")
+
+
+def zoom_checks(canvas) -> None:
+    """缩放平移：锚点钉住、坐标自洽、平移钳制、上下限、复位。"""
+    canvas.resize(600, 360)
+    canvas.reset_view()
+    _, fit = canvas._layout()
+
+    def viewport_of(img_pt, rect, scale):
+        return QPointF(rect.x() + img_pt.x() * scale, rect.y() + img_pt.y() * scale)
+
+    anchor = QPointF(canvas.width() / 2, canvas.height() / 2)
+    img_at_anchor = canvas._image_point(anchor)
+    canvas._set_zoom(2.0, anchor)
+    rect, scale = canvas._layout()
+    assert abs(scale - fit * 2) < 1e-6, "缩放比例错误"
+    assert (viewport_of(img_at_anchor, rect, scale) - anchor).manhattanLength() < 1e-6, \
+        "锚点下的图像内容应缩放前后不动"
+    pt = QPointF(160, 120)
+    img_pt = canvas._image_point(pt)
+    back = QPointF(rect.x() + img_pt.x() * scale, rect.y() + img_pt.y() * scale)
+    assert (back - pt).manhattanLength() < 1e-3, "视口↔图像坐标映射应自洽"
+    canvas._pan = canvas._clamped_pan(QPointF(-99999, 0), rect.width(), rect.height())
+    assert canvas._layout()[0].right() >= 40 - 1e-6, "平移后画布至少留 40px 在视口内"
+    canvas._set_zoom(99.0)
+    assert canvas._zoom <= 8.0, "缩放上限失效"
+    canvas._set_zoom(0.1)
+    assert canvas._zoom >= 1.0, "缩放下限失效"
+    canvas.reset_view()
+    assert canvas._zoom == 1.0 and canvas._pan == QPointF(0, 0), "复位失败"
 
 
 def dialog_demo(app) -> None:
