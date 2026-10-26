@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Tuple
 
@@ -18,6 +19,23 @@ from . import paths
 from .config import ClientConfig
 
 USER_AGENT = "Sujie/1.0"
+
+# 多目标并行发送的线程上限：局域网带宽就那么多，目标再多并行也没有额外收益，
+# 反而会互相挤占。普通交换机环境下 4 路并发足够跑满。
+MAX_PARALLEL_TARGETS = 4
+
+
+def _send_parallel(targets: List[dict], send: Callable[[dict], "UploadResult"]) -> List["UploadResult"]:
+    """并行把同一份内容发给所有接收端，返回结果列表（顺序与 targets 一致）。
+
+    串行逐台发时总耗时是累加的：5 台电脑 = 5 倍时间；并行后取决于最慢的一台。
+    send 内部已自行捕获所有网络异常并转成失败结果，这里不会向外抛。
+    """
+    if len(targets) <= 1:
+        return [send(target) for target in targets]
+    workers = min(len(targets), MAX_PARALLEL_TARGETS)
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="sujie-send") as pool:
+        return list(pool.map(send, targets))
 
 
 def _opener() -> urllib.request.OpenerDirector:
@@ -224,10 +242,9 @@ def upload_targets_file(
     """把磁盘上的文件（录屏或任意文件）发给所有接收端。"""
     if not targets:
         return UploadResult(False, "尚未配置接收端地址")
-    failed = []
-    sent = 0
-    for target in targets:
-        result = http_upload_file(
+
+    def _send(target: dict) -> UploadResult:
+        return http_upload_file(
             str(target.get("host", "")),
             int(target.get("port", 8765)),
             str(target.get("token", "")),
@@ -237,6 +254,10 @@ def upload_targets_file(
             progress=progress,
             keep_name=keep_name,
         )
+
+    failed = []
+    sent = 0
+    for target, result in zip(targets, _send_parallel(targets, _send)):
         if result.ok:
             sent += 1
         else:
@@ -267,16 +288,19 @@ def upload_image(
 def upload_targets(targets: List[dict], filename: str, data: bytes) -> UploadResult:
     if not targets:
         return UploadResult(False, "尚未配置接收端地址")
-    failed = []
-    sent = 0
-    for target in targets:
-        result = http_upload(
+
+    def _send(target: dict) -> UploadResult:
+        return http_upload(
             str(target.get("host", "")),
             int(target.get("port", 8765)),
             str(target.get("token", "")),
             filename,
             data,
         )
+
+    failed = []
+    sent = 0
+    for target, result in zip(targets, _send_parallel(targets, _send)):
         if result.ok:
             sent += 1
         else:
