@@ -1,9 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
+
+// 签名配置从 keystore.properties 读；文件不存在（例如 CI 或别人克隆后）就跳过签名，
+// 只构建 debug 包，不让构建直接失败。
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.isFile) keystorePropsFile.inputStream().use { load(it) }
+}
+val hasReleaseKey = keystoreProps.getProperty("storeFile")?.let { rootProject.file(it).isFile } == true
 
 android {
     namespace = "sujie.android"
@@ -17,10 +27,22 @@ android {
         versionName = "1.2.0"
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
         }
     }
 

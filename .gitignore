@@ -42,3 +42,8 @@ Desktop.ini
 /android/.idea/
 /android/*.iml
 /android/_build.bat
+/android/local.properties
+# 签名材料绝不进仓库
+/android/keystore.properties
+/android/*.jks
+/android/*.keystore

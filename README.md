@@ -5,10 +5,11 @@
 <div align="center">
   <img src="assets/sujie.png" alt="速截图标" width="92">
   <h1>速截</h1>
-  <p><strong>点一下悬浮球，截图、标注、录屏，直接出现在你的其他电脑上。</strong></p>
+  <p><strong>点一下悬浮球，截图、标注、录屏，直接出现在你的其他电脑（或平板）上。</strong></p>
   <p>局域网直连 · 原图无压缩 · 无需登录 · 不经过任何云服务</p>
   <p>
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white" alt="Windows 10/11">
+    <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" alt="Android 8.0+">
     <img src="https://img.shields.io/badge/Network-LAN%20only-43853D" alt="仅限局域网">
     <img src="https://img.shields.io/badge/version-1.2.0-e94f37" alt="v1.2.0">
     <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
@@ -122,7 +123,7 @@
 
 ## 30 秒上手
 
-1. 在两台 Windows 电脑上安装同一个安装包，连入同一局域网；
+1. 在两台电脑上安装同一个安装包（Windows 装 `速截-Setup-*.exe`，Android 平板装 `sujie-android-*.apk`），连入同一局域网；
 2. **选工作模式**：首次启动会弹出模式选择，之后随时可改——开始菜单里有「只截图」「只收图」「同时截图和收图」「更改本机工作模式」四个快捷方式，收图模式的托盘菜单里也有「本机工作模式」；
 3. 截图电脑打开「设置 → 接收端」→ 点「扫描局域网设备」→ 双击添加 → 保存；
 4. 单击悬浮球。完事。
@@ -135,7 +136,64 @@
 | 只收图 | 安静地收文件，不做任何截图操作 | 只有托盘图标 |
 | 同时截图和收图 | 既能发也能收 | 悬浮球 + 托盘图标 |
 
-收到的文件默认存在「图片\速截」，按日期自动分文件夹，托盘点一下就能打开。
+收到的文件默认存在「图片\速截」，按日期自动分文件夹，托盘点一下就能打开。Android 平板收到后默认存到应用图片目录，并可同时进系统图库。
+
+## Android 平板版
+
+同一套线协议，Windows 和平板可以互发：平板上点悬浮球截图，直接出现在电脑的「图片\速截」里；电脑点球，截图落在平板的应用图片目录（并可同时进系统图库）。
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/images/android-ball.png" alt="平板桌面上的悬浮球" width="440"><br>
+      <sub>平板上同样是那一颗球，单击截图、长按菜单</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/images/android-main.png" alt="Android 主界面" width="440"><br>
+      <sub>配色、圆角、按钮高度沿用桌面端主题</sub>
+    </td>
+  </tr>
+</table>
+
+| 能力 | Android 平板 | 说明 |
+| --- | :-: | --- |
+| 悬浮球（单击截图 / 长按菜单 / 拖动） | 支持 | 与桌面端同一套交互 |
+| 静默截图（不弹系统框） | 支持 | 无障碍服务开启一次即可 |
+| 屏幕录制授权兜底 | 支持 | 没开无障碍时回退 MediaProjection |
+| 框选区域发送 | 支持 | 透明 Activity 铺满全屏拖选 |
+| 作为接收端（端口 8765 + 发现 8766） | 支持 | 电脑能直接扫到平板并发送 |
+| 多接收端并行发送 / 离线补发 | 支持 | 与桌面端同一套待发队列语义 |
+| 标注编辑器、录屏、贴图、最近记录 | 暂不支持 | 平板端目前聚焦「一键截图发送」 |
+
+### 安装
+
+1. 下载 `sujie-android-1.2.0.apk`（在 [Releases](../../releases) 页或 `dist\android\`）；
+2. 平板上允许「安装未知来源应用」后安装；
+3. 打开速截 → 允许通知 → 允许「显示在其他应用上层」（悬浮球必需，平台限制）；
+4. **开启静默截图**：应用内点「开启静默截图」，在系统无障碍设置里打开「速截」。
+
+第 4 步不做也能用，但每次截图都会弹系统的「立即开始」确认框——这是 Android 对屏幕抓取的硬性安全约束，任何应用都无法绕过。无障碍方案只需开启一次，之后完全静默。
+
+### 为什么需要无障碍权限
+
+Android 从 5.0 起禁止应用直接读取屏幕像素。可用的通道只有两条：`MediaProjection`（每次新建会话都要用户点确认）和 `AccessibilityService.takeScreenshot()`（API 30+，启用一次后静默）。速截优先用后者，前者只作兜底。无障碍服务只用来抓屏，不读取界面内容、不监听任何操作。
+
+### Android 端构建
+
+需要 JDK 17 与 Android SDK 34：
+
+```powershell
+cd android
+# 方式一：设好环境变量后用 wrapper
+$env:JAVA_HOME = "C:\path\to\jdk-17"
+$env:ANDROID_HOME = "C:\path\to\android-sdk"
+.\gradlew.bat :core:test :app:assembleDebug
+
+# 方式二：把路径写进 _build.bat（含本机绝对路径，已 gitignore）后
+.\_build.bat :core:test :app:assembleRelease
+```
+
+协议核心在 `android/core`（纯 JVM，无 Android 依赖），22 个单元测试覆盖与桌面端的字节级兼容性。仓库路径含中文时，`gradle.properties` 里必须保留 `android.overridePathCheck=true`，且**不要**在 `org.gradle.jvmargs` 里加 `-Dfile.encoding=UTF-8`（会让 Gradle 写出的测试 worker `@argfile` 在中文路径下被读坏，表现为 `ClassNotFoundException`）。
 
 ## 真实使用场景
 
@@ -158,6 +216,9 @@
 | 长按后向下滑 | 打开最近记录 |
 | 右键 → 发送文件… | 挑选任意文件发到所有接收端，保留原文件名 |
 | 编辑器里 `Ctrl+C` / `Ctrl+S` | 标注结果复制到剪贴板 / 保存到本机 |
+| **平板**：单击悬浮球 | 静默截图并发送（不弹系统框） |
+| **平板**：长按悬浮球 | 菜单：截图 / 框选区域 / 接收端开关 / 打开速截 / 隐藏球 |
+| **平板**：拖动悬浮球 | 换位置，重启后保持 |
 
 ## 网络与隐私
 
@@ -190,6 +251,12 @@
 
 ## 更新日志
 
+**v1.2.0-android**（2026-11-16）
+- 新增 Android 平板版：悬浮球、静默截图、框选发送、作为接收端、多目标并行、离线补发
+- 与桌面端共用同一套线协议（TCP 8765 / UDP 8766 / 同名请求头 / 同名落盘规则），Windows 与平板可互发
+- 静默截图走无障碍服务 `takeScreenshot()`，开启一次后不再弹系统确认框；MediaProjection 仅作兜底
+- 界面沿用桌面端主题配色（#F5F5F7 / #0066CC / #D2D2D7），图标与 Windows 版一致
+
 **v1.2.0**（2026-10-24）
 - 新增全局截图热键 `Ctrl+Alt+S`；「截图后动作」四种模式（编辑器 / 直接发送 / 复制 / 贴图）
 - 编辑器新增「复制到剪贴板」「保存到本地」
@@ -215,6 +282,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\package.ps1
 ```
 
 安装包生成在 `dist\installer\速截-Setup-1.2.0.exe`。构建脚本会自动从 `imageio-ffmpeg` 准备录屏组件；ffmpeg 体积较大，不提交到仓库。README 截图可用 `python tools\make_docs_shots.py` 重新生成。
+
+Android 端见上文「Android 平板版」；产物在 `android\app\build\outputs\apk\release\`。
 
 ## 许可
 

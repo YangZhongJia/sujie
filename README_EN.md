@@ -5,10 +5,11 @@
 <div align="center">
   <img src="assets/sujie.png" alt="Sujie icon" width="92">
   <h1>Sujie</h1>
-  <p><strong>One click on a floating ball — screenshot, annotate, record — and it appears on your other computer.</strong></p>
+  <p><strong>One click on a floating ball — screenshot, annotate, record — and it appears on your other computer or tablet.</strong></p>
   <p>Direct LAN transfer · Original quality · No sign-in · No cloud involved</p>
   <p>
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white" alt="Windows 10/11">
+    <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white" alt="Android 8.0+">
     <img src="https://img.shields.io/badge/Network-LAN%20only-43853D" alt="LAN only">
     <img src="https://img.shields.io/badge/version-1.2.0-e94f37" alt="v1.2.0">
     <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
@@ -122,7 +123,7 @@ Every screenshot, recording, and file you sent lives in "History": with thumbnai
 
 ## Get started in 30 seconds
 
-1. Install the same installer on two Windows computers connected to the same LAN;
+1. Install on two devices on the same LAN (Windows: `Sujie-Setup-*.exe`; Android tablet: `sujie-android-*.apk`);
 2. **Pick a work mode**: first launch asks; change anytime via the Start-menu shortcuts ("Screenshot only", "Receive only", "Both", "Change work mode"), or the receiver tray menu;
 3. On the sending computer: Settings → Receivers → "Scan LAN" → double-click a device → Save;
 4. Click the floating ball. Done.
@@ -135,7 +136,60 @@ Which mode to pick:
 | Receive only | Quietly receives files, never captures | Tray icon only |
 | Both | Sends and receives | Floating ball + tray icon |
 
-Received files land in "Pictures\Sujie", sorted into dated folders. Click the tray icon to open them.
+Received files land in "Pictures\Sujie", sorted into dated folders. Click the tray icon to open them. On Android they land in the app's Pictures folder and can also be published to the system gallery.
+
+## Android tablet version
+
+Same wire protocol, so Windows and Android send to each other: tap the ball on the tablet and the shot appears in `Pictures\Sujie` on the PC; tap it on the PC and the shot lands in the tablet's Pictures folder (optionally also in the system gallery).
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/images/android-ball.png" alt="Floating ball on a tablet home screen" width="440"><br>
+      <sub>The same ball on Android: tap to capture, long-press for the menu</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/images/android-main.png" alt="Android main screen" width="440"><br>
+      <sub>Palette, corner radii and button heights follow the desktop theme</sub>
+    </td>
+  </tr>
+</table>
+
+| Capability | Android | Notes |
+| --- | :-: | --- |
+| Floating ball (tap / long-press menu / drag) | Yes | Same interaction model as desktop |
+| Silent capture (no system dialog) | Yes | Enable the accessibility service once |
+| MediaProjection fallback | Yes | Used when accessibility is off |
+| Region capture | Yes | Transparent activity, drag to select |
+| Receiver (port 8765 + discovery 8766) | Yes | PCs can discover and send to the tablet |
+| Multi-target parallel send / offline retry | Yes | Same outbox semantics as desktop |
+| Annotation editor, recording, pinning, history | Not yet | The tablet build focuses on one-tap capture and send |
+
+### Install
+
+1. Download `sujie-android-1.2.0.apk` (Releases page or `dist\android\`);
+2. Allow installing from unknown sources, then install;
+3. Open Sujie → allow notifications → allow "Display over other apps" (required for the floating ball);
+4. **Enable silent capture**: tap "Enable silent capture" in the app, then turn on "Sujie" under Accessibility.
+
+Step 4 is optional, but without it every capture shows the system "Start now" confirmation — a hard Android restriction on screen capture that no app can bypass. The accessibility route needs to be enabled only once and is then fully silent.
+
+### Why accessibility is needed
+
+Android has forbidden direct screen pixel access since 5.0. Only two channels exist: `MediaProjection` (a confirmation per new session) and `AccessibilityService.takeScreenshot()` (API 30+, silent after one-time enable). Sujie prefers the latter and keeps the former as a fallback. The service is used only to capture frames; it does not read screen content or observe your input.
+
+### Building the Android app
+
+JDK 17 and Android SDK 34 required:
+
+```powershell
+cd android
+$env:JAVA_HOME = "C:\path\to\jdk-17"
+$env:ANDROID_HOME = "C:\path\to\android-sdk"
+.\gradlew.bat :core:test :app:assembleRelease
+```
+
+The protocol layer lives in `android/core` (plain JVM, no Android dependencies); 22 unit tests cover byte-level compatibility with the desktop build. If the repository path contains non-ASCII characters, keep `android.overridePathCheck=true` in `gradle.properties` and do **not** add `-Dfile.encoding=UTF-8` to `org.gradle.jvmargs` (it corrupts the test worker's `@argfile` on such paths, surfacing as `ClassNotFoundException`).
 
 ## Typical use cases
 
@@ -189,6 +243,12 @@ The receiver default is 2048 MB per file, adjustable in receiver settings.
 Yes, no limit on receivers. Two machines can also send in both directions ("Both" mode).
 
 ## Changelog
+
+**v1.2.0-android** (2026-11-16)
+- New Android tablet build: floating ball, silent capture, region send, built-in receiver, parallel multi-target send, offline retry
+- Shares the desktop wire protocol (TCP 8765 / UDP 8766 / same headers / same naming rules), so Windows and Android interoperate
+- Silent capture via `AccessibilityService.takeScreenshot()`; MediaProjection kept as a fallback
+- UI reuses the desktop palette (#F5F5F7 / #0066CC / #D2D2D7) and the same app icon
 
 **v1.2.0** (2026-10-24)
 - Global capture hotkey `Ctrl+Alt+S`; four after-capture actions (editor / send / copy / pin)
