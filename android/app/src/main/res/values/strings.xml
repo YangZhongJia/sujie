@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">速截</string>
+    <string name="accessibility_description">用于静默截图：开启后，点悬浮球即可截图发送，不会再弹系统的屏幕录制确认框。速截不会读取或记录你的任何界面内容。</string>
+</resources>

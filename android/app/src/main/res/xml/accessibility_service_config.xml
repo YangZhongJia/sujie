@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  只用 AccessibilityService.takeScreenshot() 抓屏，不读取任何界面内容、不监听用户操作。
+  canTakeScreenshot 必须显式声明为 true，否则 takeScreenshot() 直接抛异常
+  （系统能力位会是 capabilities=0）。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="false"
+    android:canTakeScreenshot="true"
+    android:isAccessibilityTool="false"
+    android:description="@string/accessibility_description"
+    android:notificationTimeout="100"
+    android:settingsActivity="sujie.android.MainActivity" />
