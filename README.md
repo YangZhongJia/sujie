@@ -167,7 +167,7 @@
 
 ### 安装
 
-1. 下载 `sujie-android-1.2.0.apk`（在 [Releases](../../releases) 页或 `dist\android\`）；
+1. 下载 [`sujie-android-1.2.0.apk`](android/release/sujie-android-1.2.0.apk)（10.5 MB，已签名，可直接安装）；
 2. 平板上允许「安装未知来源应用」后安装；
 3. 打开速截 → 允许通知 → 允许「显示在其他应用上层」（悬浮球必需，平台限制）；
 4. **开启静默截图**：应用内点「开启静默截图」，在系统无障碍设置里打开「速截」。

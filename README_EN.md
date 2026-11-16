@@ -167,7 +167,7 @@ Same wire protocol, so Windows and Android send to each other: tap the ball on t
 
 ### Install
 
-1. Download `sujie-android-1.2.0.apk` (Releases page or `dist\android\`);
+1. Download [`sujie-android-1.2.0.apk`](android/release/sujie-android-1.2.0.apk) (10.5 MB, signed, ready to install);
 2. Allow installing from unknown sources, then install;
 3. Open Sujie → allow notifications → allow "Display over other apps" (required for the floating ball);
 4. **Enable silent capture**: tap "Enable silent capture" in the app, then turn on "Sujie" under Accessibility.
