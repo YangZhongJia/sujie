@@ -32,3 +32,13 @@ Desktop.ini
 
 # ZCode session artifacts
 /.zcode/
+
+# Android 构建产物
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/core/build/
+/android/local.properties
+/android/.idea/
+/android/*.iml
+/android/_build.bat
