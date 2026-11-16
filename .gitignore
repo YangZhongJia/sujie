@@ -47,3 +47,6 @@ Desktop.ini
 /android/keystore.properties
 /android/*.jks
 /android/*.keystore
+
+# 本地分发的安装包副本（仓库内正式副本在 android/release/）
+/*.apk
