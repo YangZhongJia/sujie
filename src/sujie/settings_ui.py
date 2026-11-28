@@ -6,6 +6,7 @@ import os
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -168,13 +169,14 @@ class SettingsDialog(QDialog):
         form = QFormLayout()
         self.host_edit = QLineEdit()
         self.host_edit.setPlaceholderText("例如 192.168.1.20")
-        self.port_spin = QSpinBox()
-        self.port_spin.setRange(1, 65535)
+        self.port_edit = QLineEdit()
+        self.port_edit.setValidator(QIntValidator(1, 65535, self))
+        self.port_edit.setPlaceholderText("8765")
         self.token_edit = QLineEdit()
         self.token_edit.setEchoMode(QLineEdit.Password)
         self.token_edit.setPlaceholderText("与接收端一致；接收端未设置则留空")
         form.addRow("接收端 IP", self.host_edit)
-        form.addRow("端口", self.port_spin)
+        form.addRow("端口", self.port_edit)
         form.addRow("共享密钥", self.token_edit)
 
         scan_row = QHBoxLayout()
@@ -412,15 +414,34 @@ class SettingsDialog(QDialog):
         if 0 <= row < len(self._targets):
             target = self._targets[row]
             self.host_edit.setText(str(target.get("host", "")))
-            self.port_spin.setValue(int(target.get("port", 8765)))
+            self.port_edit.setText(str(target.get("port", 8765)))
             self.token_edit.setText(str(target.get("token", "")))
+
+    def _port_value(self) -> Optional[int]:
+        """端口输入框 → 整数。空着就按默认 8765，越界或非数字返回 None。"""
+        text = self.port_edit.text().strip()
+        if not text:
+            return 8765
+        try:
+            port = int(text)
+        except ValueError:
+            return None
+        return port if 1 <= port <= 65535 else None
 
     def _add_target(self) -> None:
         host = self.host_edit.text().strip()
         if not host:
             QMessageBox.warning(self, "缺少配置", "请填写接收端 IP，或双击扫描到的设备。")
             return
-        target = receiver_target(host, int(self.port_spin.value()), self.token_edit.text())
+        port = self._port_value()
+        if port is None:
+            QMessageBox.warning(self, "端口无效", "端口需要填 1 到 65535 之间的数字。")
+            return
+        try:
+            target = receiver_target(host, port, self.token_edit.text())
+        except ValueError as exc:
+            QMessageBox.warning(self, "配置无效", str(exc))
+            return
         for row, old in enumerate(self._targets):
             if old.get("id") == target["id"]:
                 self._targets[row] = target
@@ -466,7 +487,7 @@ class SettingsDialog(QDialog):
         ips = device.get("ips") or []
         if ips:
             self.host_edit.setText(ips[0])
-        self.port_spin.setValue(int(device.get("http_port", 8765)))
+        self.port_edit.setText(str(device.get("http_port", 8765)))
         self.token_edit.clear()
 
     def _collect(self) -> ClientConfig:

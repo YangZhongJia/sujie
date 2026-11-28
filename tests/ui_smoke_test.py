@@ -162,7 +162,7 @@ def main() -> int:  # noqa: C901
     check(any("另一台电脑" in s for s in hint_texts), "接收端页有「在哪台电脑上配置」的引导说明")
 
     dialog.host_edit.setText("192.168.1.99")
-    dialog.port_spin.setValue(9999)
+    dialog.port_edit.setText("9999")
     dialog.token_edit.setText("abc123")
     dialog._add_target()
     collected = dialog._collect()
@@ -233,7 +233,7 @@ def main() -> int:  # noqa: C901
         seen.clear()
         settings_ui.uploader.test_targets = lambda _t: UploadResult(True, "连接正常")
         dialog.host_edit.setText("127.0.0.1")
-        dialog.port_spin.setValue(18765)
+        dialog.port_edit.setText("18765")
         dialog._add_target()
         run_accept(dialog)
         check(dialog.result() == QDialog.Accepted, "填好后保存成功")
